@@ -37,3 +37,10 @@
 - 双人房间加入在一个 Drizzle transaction 中先对目标 `play_groups` 行执行 `SELECT ... FOR UPDATE`，然后检查有效成员数并写入成员；同组持锁串行化，拒绝第三席。服务事务不读取或写入其他门店的业务行，关系仍由 M-004 的复合外键兜底。
 - PGlite 用真实 M-004 SQL migration 驱动集成测试，覆盖事务、唯一约束、同意/权限、答案幂等、状态与过期。PGlite 为单连接测试环境，不证明 PostgreSQL 多连接锁等待与并发抢占；M-013 及真实组队开放前必须在真实 PostgreSQL 验证两到三客户端抢位、锁等待、超时和重试。
 - 双人状态映射为 `open -> waiting`、`paired -> ready`，完成状态从两名成员均 completed 派生；Schema 枚举没有 completed/abandoned 组状态，分别以派生结果和 `cancelled`/`expired` 表达，不新增迁移。
+
+## M-006 桌码入口与顾客首页
+
+- `/t/<tableCode>` 是动态服务端只读页面；原始桌码只用于 SHA-256 查找，不作为主键或认证。公开投影仅含门店名、当前有效活动标题和题数，查询复用 M-005 的活动可用性校验；不返回内部 ID、内容快照、答案或令牌。
+- 无效桌码走 Next.js 友好 not-found 页面；由于该动态页面以 Suspense 流式响应，运行时无效桌码响应状态为 HTTP 200（soft 404），页面 noindex。停用桌位、停用门店、无当前活动和数据库不可用有各自状态文案。桌码页设置 `no-store`、`no-referrer` 和 `noindex`，不在页面日志中记录原始码或底层错误。
+- 桌码页的个人入口只链接现有 `/play/demo`，并说明演示不保存记录；双人入口明确尚未开放。该页面不创建 Attempt、Submission、PlayGroup，也不引入公开 API。
+- 页面数据必须由配置的 PostgreSQL 读取。本地没有数据库连接配置，未采用 PGlite 文件数据库或伪造样例数据；PGlite 仅用于以正式 SQL migration 建库的集成测试。真实 PostgreSQL 与浏览器连库需在后续具备安全隔离的 PostgreSQL 环境时验证。
