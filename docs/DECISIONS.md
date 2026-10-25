@@ -52,3 +52,12 @@
 - 写请求必须有与请求 Host + 协议完全一致的 Origin；Next 内部 URL 与入站 Host 不一致时按入站 Host 校验，反向代理可传递协议。缺失、无效、跨站或非 same-origin Fetch Metadata 均拒绝。没有 CORS 放宽。个人开始控件用 Web Locks 对同一浏览器多标签请求串行化；不支持 Web Locks 的浏览器会安全失败，不发送开始请求。
 - Route Handler 接受可注入的 Drizzle provider，测试通过 PGlite 和仓库 SQL migrations 调用实际 M-005 服务。生产适配器仍是 `pg`；测试注入不替换生产 DB，也不证明真实 PostgreSQL 或多实例并发行为。
 - M-006 的 Chrome 扩展自动化提供器在浏览器选择阶段报无法加载 request-header policy；脱敏诊断表明策略服务初始化 `POST https://ab.chatgpt.com/v1/initialize` 网络失败，应用页面请求未发出，因此没有本地 URL/Origin/Host/HTTP 状态或应用服务器错误可归因。改用 Codex 内置浏览器后本地页面导航与 `/play/demo` 三题交互成功；未放宽应用安全头或 CORS。
+
+## M-007B 真实 PostgreSQL 与 Chrome 验收
+
+- 本机验收使用 EDB PostgreSQL 18.6 官方免安装 ZIP，解压于 `D:\moonlight\.tools\postgresql-18.6`，数据与日志位于 `D:\moonlight\.local`；实例仅监听 `127.0.0.1:55432`，pg_hba 只允许 SCRAM，未注册 Windows 服务。连接凭据在被忽略的 `web/.env.local`；超级用户密码只用于初始化，之后没有保存。
+- `npm run db:migrate:local` 通过 pg adapter 执行仓库 Drizzle SQL migration；重复迁移成功，数据库记录 1 条 migration、9 张 public 表。`npm run db:seed:m007b:local` 可重复运行，插入并核验稳定 ID 的全虚构 Venue、桌位、三题题包、不可变版本和 publication；不会更新或删除行。桌码原文仅保存在被忽略的本地 fixture 文件，数据库只存哈希。
+- 使用现有 Google Chrome 安装版和临时固定 Playwright 1.56.1，从 D 盘临时目录和独立 D 盘浏览器配置运行。有效桌码页显示虚构门店/题包；首次点击后创建；刷新与第二标签均恢复；已有 Cookie 的三次 POST 均返回 resumed/200，SQL Attempt 行数不变。跨店读取 401，未知桌位 404，停用桌位/门店 409，无上架活动 409，恶意 Origin 403；清 Cookie 后读取 401 并显示开始按钮。375px/390px 下 document/body 无横向溢出，开始按钮可用。生产构建在本地 HTTP 的 Set-Cookie 仍包含 Secure（`NODE_ENV=production`）；Chrome localhost 接受该 Cookie 并成功刷新恢复，生产部署仍应使用 HTTPS。
+- SQL 验收最终记录 3 条虚构 `solo/in_progress` Attempt、0 条 Submission。三条来自独立匿名浏览器配置文件；其中一次早期 Playwright 检查把生产模式正确发送的 `Secure` 属性误判为期望 false，浏览器在创建后关闭，留下一个不可恢复的虚构测试行。没有清理或删除它；后续同一 Chrome 配置文件的刷新、多标签和重试均不再增加行数。任务验收前后没有触碰真实顾客数据。
+- 本地根路由、`/play/demo`、`/staff`、`/admin`、`/api/health` 均返回 HTTP 200。浏览器 request-header policy 提供器仍在应用导航前失败；本次通过已安装 Chrome + Playwright 的本地临时安装完成真实浏览器验收，没有放宽应用安全头或 CORS。
+- 未进行多 PostgreSQL 客户端事务/锁竞争测试（层 D `NOT_RUN`）；未测试首次无 Cookie 的并行 POST。M-007 Web Locks 只覆盖同一支持该 API 的浏览器 UI 多标签，服务端没有跨实例幂等键；两个首次无 Cookie 的并发 POST 仍可能创建两个独立匿名参与。Cookie 30 天过期后因 Schema 无参与记录过期字段而无法恢复旧记录。

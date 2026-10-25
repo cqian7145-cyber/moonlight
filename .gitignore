@@ -29,3 +29,7 @@ node_modules/
 coverage/
 /dist/
 /out/
+
+# D-drive-only local development tools, database files, and credentials
+/.tools/
+/.local/

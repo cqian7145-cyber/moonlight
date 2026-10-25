@@ -15,4 +15,5 @@ npm run dev
 - `npm run test:db` 在每个测试独立创建的 PGlite 内存实例执行迁移并验证约束，不读取 `DATABASE_URL`。
 - `npm run db:generate` 只生成 migration，不连接数据库。生成后需审查 SQL。
 - `npm run db:migrate:local` 需要显式设置 `DATABASE_URL`，且配置会拒绝非 loopback 地址。命令不会启动 PostgreSQL。
+- `npm run db:seed:m007b:local` 从 `web/.env.local` 读取连接，仅允许 `localhost`/loopback 上的 `moonlight_dev`；使用稳定主键插入虚构验收数据，已存在数据必须与预期一致，否则回滚并退出。有效桌码保存在被忽略的 `D:\moonlight\.local\m007b-fixture.json`。
 - 当前没有生产迁移命令；PGlite 测试不替代在真实 PostgreSQL 上的部署前验收。
