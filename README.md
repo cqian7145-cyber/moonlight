@@ -6,7 +6,8 @@ Moonlight V1 面向大学城社交型小酒馆：不依赖大屏，顾客扫描�
 
 - Next.js 16.x App Router、React、TypeScript、Tailwind CSS
 - Node.js 24.x
-- 后续数据库候选为 PostgreSQL + Drizzle；当前演示不接数据库
+- 数据模型采用 PostgreSQL + Drizzle；SQL 迁移由 Drizzle Kit 生成并纳入版本控制
+- 数据库集成测试在进程内 PGlite 执行，不依赖 Docker；PGlite 不是生产存储
 
 ## 本地开发
 
@@ -28,10 +29,13 @@ npm run dev
 - `/play/demo` 提供三道本地选择题、确定性趣味结果和重新开始。
 - `/staff`、`/admin` 仅说明尚未开发。
 - `/api/health` 提供不依赖数据库的健康检查。
+- `web/src/db/schema.ts` 定义 9 张 V1 游戏数据表；当前演示页没有接入数据库。
+- `web/drizzle/` 保存迁移。可运行 `npm run test:db` 验证迁移和 PostgreSQL 约束，无需配置数据库。
+- `npm run db:migrate:local` 仅接受 loopback PostgreSQL URL；它不会启动数据库。没有生产迁移命令。
 
 ## 尚未实现
 
-双人联机、登录、数据库、正式商家后台、AI、微信小程序、支付、上线及顾客数据持久化均不在当前演示范围。
+双人联机业务流程、登录、数据库业务接口、正式商家后台、AI、微信小程序、支付、上线及顾客数据采集均不在当前演示范围。数据库 schema 是后续业务开发的基础，不代表已有可部署的后端。
 
 ## 目录
 

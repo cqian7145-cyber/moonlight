@@ -1,0 +1,960 @@
+{
+  "id": "745d630d-8629-4a59-bea3-c1739d05c064",
+  "prevId": "00000000-0000-0000-0000-000000000000",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.activity_templates": {
+      "name": "activity_templates",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "venue_id": {
+          "name": "venue_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "title": {
+          "name": "title",
+          "type": "varchar(160)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "template_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'draft'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "activity_templates_venue_id_venues_id_fk": {
+          "name": "activity_templates_venue_id_venues_id_fk",
+          "tableFrom": "activity_templates",
+          "tableTo": "venues",
+          "columnsFrom": [
+            "venue_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "activity_templates_id_venue_unique": {
+          "name": "activity_templates_id_venue_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id",
+            "venue_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "activity_templates_title_nonempty": {
+          "name": "activity_templates_title_nonempty",
+          "value": "length(trim(\"activity_templates\".\"title\")) > 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.activity_versions": {
+      "name": "activity_versions",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "venue_id": {
+          "name": "venue_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "template_id": {
+          "name": "template_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "version_no": {
+          "name": "version_no",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "content": {
+          "name": "content",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "activity_versions_template_version_unique": {
+          "name": "activity_versions_template_version_unique",
+          "columns": [
+            {
+              "expression": "template_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "version_no",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "activity_versions_template_venue_fk": {
+          "name": "activity_versions_template_venue_fk",
+          "tableFrom": "activity_versions",
+          "tableTo": "activity_templates",
+          "columnsFrom": [
+            "template_id",
+            "venue_id"
+          ],
+          "columnsTo": [
+            "id",
+            "venue_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "activity_versions_id_venue_unique": {
+          "name": "activity_versions_id_venue_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id",
+            "venue_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "activity_versions_positive_version": {
+          "name": "activity_versions_positive_version",
+          "value": "\"activity_versions\".\"version_no\" > 0"
+        },
+        "activity_versions_has_cues": {
+          "name": "activity_versions_has_cues",
+          "value": "jsonb_typeof(\"activity_versions\".\"content\") = 'object' AND CASE\n      WHEN jsonb_typeof(\"activity_versions\".\"content\" -> 'cues') = 'array'\n      THEN jsonb_array_length(\"activity_versions\".\"content\" -> 'cues') > 0\n      ELSE false\n    END"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.attempts": {
+      "name": "attempts",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "publication_id": {
+          "name": "publication_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "play_group_id": {
+          "name": "play_group_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "mode": {
+          "name": "mode",
+          "type": "attempt_mode",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'solo'"
+        },
+        "status": {
+          "name": "status",
+          "type": "attempt_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'in_progress'"
+        },
+        "session_token_hash": {
+          "name": "session_token_hash",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "consented_at": {
+          "name": "consented_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "started_at": {
+          "name": "started_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "completed_at": {
+          "name": "completed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "attempts_session_token_hash_unique": {
+          "name": "attempts_session_token_hash_unique",
+          "columns": [
+            {
+              "expression": "session_token_hash",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "attempts_group_publication_fk": {
+          "name": "attempts_group_publication_fk",
+          "tableFrom": "attempts",
+          "tableTo": "play_groups",
+          "columnsFrom": [
+            "play_group_id",
+            "publication_id"
+          ],
+          "columnsTo": [
+            "id",
+            "publication_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "attempts_publication_fk": {
+          "name": "attempts_publication_fk",
+          "tableFrom": "attempts",
+          "tableTo": "publications",
+          "columnsFrom": [
+            "publication_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "attempts_session_token_hash_nonempty": {
+          "name": "attempts_session_token_hash_nonempty",
+          "value": "length(trim(\"attempts\".\"session_token_hash\")) > 0"
+        },
+        "attempts_mode_group_consent_match": {
+          "name": "attempts_mode_group_consent_match",
+          "value": "(\"attempts\".\"mode\" = 'solo' AND \"attempts\".\"play_group_id\" IS NULL AND \"attempts\".\"consented_at\" IS NULL)\n      OR (\"attempts\".\"mode\" = 'duo' AND \"attempts\".\"play_group_id\" IS NOT NULL AND \"attempts\".\"consented_at\" IS NOT NULL)"
+        },
+        "attempts_completion_timestamp_matches_status": {
+          "name": "attempts_completion_timestamp_matches_status",
+          "value": "(\"attempts\".\"status\" = 'completed' AND \"attempts\".\"completed_at\" IS NOT NULL)\n      OR (\"attempts\".\"status\" <> 'completed' AND \"attempts\".\"completed_at\" IS NULL)"
+        },
+        "attempts_completion_after_start": {
+          "name": "attempts_completion_after_start",
+          "value": "\"attempts\".\"completed_at\" IS NULL OR \"attempts\".\"completed_at\" >= \"attempts\".\"started_at\""
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.feedback": {
+      "name": "feedback",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "attempt_id": {
+          "name": "attempt_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "rating": {
+          "name": "rating",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "feedback_attempt_unique": {
+          "name": "feedback_attempt_unique",
+          "columns": [
+            {
+              "expression": "attempt_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "feedback_attempt_id_attempts_id_fk": {
+          "name": "feedback_attempt_id_attempts_id_fk",
+          "tableFrom": "feedback",
+          "tableTo": "attempts",
+          "columnsFrom": [
+            "attempt_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "feedback_rating_in_range": {
+          "name": "feedback_rating_in_range",
+          "value": "\"feedback\".\"rating\" BETWEEN 1 AND 5"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.play_groups": {
+      "name": "play_groups",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "venue_id": {
+          "name": "venue_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "publication_id": {
+          "name": "publication_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "table_id": {
+          "name": "table_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "invite_code_hash": {
+          "name": "invite_code_hash",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "play_group_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'open'"
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "play_groups_invite_code_hash_unique": {
+          "name": "play_groups_invite_code_hash_unique",
+          "columns": [
+            {
+              "expression": "invite_code_hash",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "play_groups_publication_venue_fk": {
+          "name": "play_groups_publication_venue_fk",
+          "tableFrom": "play_groups",
+          "tableTo": "publications",
+          "columnsFrom": [
+            "publication_id",
+            "venue_id"
+          ],
+          "columnsTo": [
+            "id",
+            "venue_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "play_groups_table_venue_fk": {
+          "name": "play_groups_table_venue_fk",
+          "tableFrom": "play_groups",
+          "tableTo": "venue_tables",
+          "columnsFrom": [
+            "table_id",
+            "venue_id"
+          ],
+          "columnsTo": [
+            "id",
+            "venue_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "play_groups_id_publication_unique": {
+          "name": "play_groups_id_publication_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id",
+            "publication_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "play_groups_invite_code_hash_nonempty": {
+          "name": "play_groups_invite_code_hash_nonempty",
+          "value": "length(trim(\"play_groups\".\"invite_code_hash\")) > 0"
+        },
+        "play_groups_expiry_after_creation": {
+          "name": "play_groups_expiry_after_creation",
+          "value": "\"play_groups\".\"expires_at\" > \"play_groups\".\"created_at\""
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.publications": {
+      "name": "publications",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "venue_id": {
+          "name": "venue_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "version_id": {
+          "name": "version_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "publication_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'active'"
+        },
+        "activated_at": {
+          "name": "activated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "deactivated_at": {
+          "name": "deactivated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "publications_one_active_per_venue": {
+          "name": "publications_one_active_per_venue",
+          "columns": [
+            {
+              "expression": "venue_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"publications\".\"status\" = 'active'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "publications_venue_id_venues_id_fk": {
+          "name": "publications_venue_id_venues_id_fk",
+          "tableFrom": "publications",
+          "tableTo": "venues",
+          "columnsFrom": [
+            "venue_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "publications_version_venue_fk": {
+          "name": "publications_version_venue_fk",
+          "tableFrom": "publications",
+          "tableTo": "activity_versions",
+          "columnsFrom": [
+            "version_id",
+            "venue_id"
+          ],
+          "columnsTo": [
+            "id",
+            "venue_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "publications_id_venue_unique": {
+          "name": "publications_id_venue_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id",
+            "venue_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "publications_status_timestamps_match": {
+          "name": "publications_status_timestamps_match",
+          "value": "(\"publications\".\"status\" = 'active' AND \"publications\".\"deactivated_at\" IS NULL)\n      OR (\"publications\".\"status\" = 'inactive' AND \"publications\".\"deactivated_at\" IS NOT NULL)"
+        },
+        "publications_deactivation_after_activation": {
+          "name": "publications_deactivation_after_activation",
+          "value": "\"publications\".\"deactivated_at\" IS NULL OR \"publications\".\"deactivated_at\" >= \"publications\".\"activated_at\""
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.submissions": {
+      "name": "submissions",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "attempt_id": {
+          "name": "attempt_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "cue_key": {
+          "name": "cue_key",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "answer": {
+          "name": "answer",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "submissions_attempt_cue_unique": {
+          "name": "submissions_attempt_cue_unique",
+          "columns": [
+            {
+              "expression": "attempt_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "cue_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "submissions_attempt_id_attempts_id_fk": {
+          "name": "submissions_attempt_id_attempts_id_fk",
+          "tableFrom": "submissions",
+          "tableTo": "attempts",
+          "columnsFrom": [
+            "attempt_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "submissions_cue_key_nonempty": {
+          "name": "submissions_cue_key_nonempty",
+          "value": "length(trim(\"submissions\".\"cue_key\")) > 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.venue_tables": {
+      "name": "venue_tables",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "venue_id": {
+          "name": "venue_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(80)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "public_code_hash": {
+          "name": "public_code_hash",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "is_enabled": {
+          "name": "is_enabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "venue_tables_public_code_hash_unique": {
+          "name": "venue_tables_public_code_hash_unique",
+          "columns": [
+            {
+              "expression": "public_code_hash",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "venue_tables_venue_id_venues_id_fk": {
+          "name": "venue_tables_venue_id_venues_id_fk",
+          "tableFrom": "venue_tables",
+          "tableTo": "venues",
+          "columnsFrom": [
+            "venue_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "venue_tables_id_venue_unique": {
+          "name": "venue_tables_id_venue_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id",
+            "venue_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "venue_tables_name_nonempty": {
+          "name": "venue_tables_name_nonempty",
+          "value": "length(trim(\"venue_tables\".\"name\")) > 0"
+        },
+        "venue_tables_public_code_hash_nonempty": {
+          "name": "venue_tables_public_code_hash_nonempty",
+          "value": "length(trim(\"venue_tables\".\"public_code_hash\")) > 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.venues": {
+      "name": "venues",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(160)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "timezone": {
+          "name": "timezone",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'Asia/Shanghai'"
+        },
+        "status": {
+          "name": "status",
+          "type": "venue_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'active'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "venues_name_nonempty": {
+          "name": "venues_name_nonempty",
+          "value": "length(trim(\"venues\".\"name\")) > 0"
+        },
+        "venues_timezone_nonempty": {
+          "name": "venues_timezone_nonempty",
+          "value": "length(trim(\"venues\".\"timezone\")) > 0"
+        }
+      },
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {
+    "public.attempt_mode": {
+      "name": "attempt_mode",
+      "schema": "public",
+      "values": [
+        "solo",
+        "duo"
+      ]
+    },
+    "public.attempt_status": {
+      "name": "attempt_status",
+      "schema": "public",
+      "values": [
+        "in_progress",
+        "completed",
+        "abandoned"
+      ]
+    },
+    "public.play_group_status": {
+      "name": "play_group_status",
+      "schema": "public",
+      "values": [
+        "open",
+        "paired",
+        "expired",
+        "cancelled"
+      ]
+    },
+    "public.publication_status": {
+      "name": "publication_status",
+      "schema": "public",
+      "values": [
+        "active",
+        "inactive"
+      ]
+    },
+    "public.template_status": {
+      "name": "template_status",
+      "schema": "public",
+      "values": [
+        "draft",
+        "archived"
+      ]
+    },
+    "public.venue_status": {
+      "name": "venue_status",
+      "schema": "public",
+      "values": [
+        "active",
+        "suspended",
+        "archived"
+      ]
+    }
+  },
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}
