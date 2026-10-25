@@ -5,7 +5,7 @@
 - 服务大学城社交型小酒馆。
 - 无大屏，以桌面二维码引导顾客在手机 H5 随时轻互动。
 - 个人模式必须可用，顾客可以独自开始和完成一轮玩法。
-- 双人默契与房间联机属于后续 M-007～M-009，不作为当前默认体验。
+- 双人顾客页面、联机 API 与商家正式功能仍留待后续任务；M-005 只建立未对外开放的服务端领域规则。
 - 商家后续负责启用内容和查看复盘；当前任务不建设正式商家后台。
 
 ## 当前技术方向
@@ -27,3 +27,13 @@
 - `activity_versions` 是追加式快照；migration trigger 拒绝更新和删除，并在插入时校验 `cues` 为非空数组、cue 的 `key`/`prompt` 非空、choices 至少两项且为非空字符串、cue key 不重复。应用层仍需只创建完整版本，不提供编辑已发布版本的接口。
 - 首版每个门店最多一个 active publication，由 PostgreSQL 部分唯一索引保证。各表状态使用枚举/检查约束限定取值；M-004 不定义或执行完整状态转换规则。
 - 演示页面仍完全不依赖数据库。迁移集成测试执行 `drizzle-kit generate` 产物并验证重复 migrate、唯一约束、外键、跨门店一致性、同组同发布、版本冻结和单店唯一 active publication。
+
+## M-005 服务端领域层
+
+- 领域服务位于 `web/src/server/`，每个数据库操作通过调用方传入的 Drizzle client 执行；`server-only` 阻止其进入 Client Component 模块图。测试仅在 Vitest 中将标记解析为空模块，生产 Next.js 构建仍使用官方边界检查。
+- 当前活动读取必须同时满足门店 active、publication active、`activated_at <= serverNow`、无 `deactivated_at`、题包版本内容有效且模板未归档。M-004 Schema 没有开始/结束时间窗口字段；结束通过将 publication 置为 inactive 并写入 `deactivated_at` 表达。不会在 M-005 改写 M-004 迁移。
+- 活动版本规则固定为 3 道题，每题 3 个非空选项，以匹配 M-003 个人结果算法。数据库 migration 继续允许每题至少 2 项；服务层采用更窄的 V1 业务校验。
+- 个人与邀请令牌由 Node `crypto.randomBytes(32)` 生成，只在创建响应中返回原文，数据库保存 SHA-256 哈希；提供给创建 API 的可恢复 token 只能命中已存在参与记录，不能由调用方选取新 token。邀请加入要求单独明确同意。
+- 双人房间加入在一个 Drizzle transaction 中先对目标 `play_groups` 行执行 `SELECT ... FOR UPDATE`，然后检查有效成员数并写入成员；同组持锁串行化，拒绝第三席。服务事务不读取或写入其他门店的业务行，关系仍由 M-004 的复合外键兜底。
+- PGlite 用真实 M-004 SQL migration 驱动集成测试，覆盖事务、唯一约束、同意/权限、答案幂等、状态与过期。PGlite 为单连接测试环境，不证明 PostgreSQL 多连接锁等待与并发抢占；M-013 及真实组队开放前必须在真实 PostgreSQL 验证两到三客户端抢位、锁等待、超时和重试。
+- 双人状态映射为 `open -> waiting`、`paired -> ready`，完成状态从两名成员均 completed 派生；Schema 枚举没有 completed/abandoned 组状态，分别以派生结果和 `cancelled`/`expired` 表达，不新增迁移。
