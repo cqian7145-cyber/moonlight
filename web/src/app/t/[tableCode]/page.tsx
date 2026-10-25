@@ -29,5 +29,5 @@ async function ResolvedTableEntry({ params }: TableEntryPageProps) {
   const { tableCode } = await params;
   const entry = await loadCustomerEntryPage(tableCode);
   if (entry.status === "not_found") notFound();
-  return <TableEntryView entry={entry} />;
+  return <TableEntryView entry={entry} tableCode={tableCode} />;
 }

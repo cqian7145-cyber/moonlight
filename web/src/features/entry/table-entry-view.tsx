@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { PublicTableEntry } from "@/server/customer-entry";
+import { SoloAttemptControl } from "./solo-attempt-control";
 
 function Wordmark() {
   return <Link className="entryWordmark" href="/" aria-label="Moonlight 首页">moonlight<span aria-hidden="true" /></Link>;
@@ -36,7 +37,7 @@ function EntryMessage({ title, description }: { title: string; description: stri
   );
 }
 
-export function TableEntryView({ entry }: { entry: PublicTableEntry }) {
+export function TableEntryView({ entry, tableCode }: { entry: PublicTableEntry; tableCode?: string }) {
   if (entry.status === "not_found") {
     return <EntryMessage title="没有找到这张桌码" description="请检查桌上的二维码是否完整，或向店员确认入口。" />;
   }
@@ -51,6 +52,9 @@ export function TableEntryView({ entry }: { entry: PublicTableEntry }) {
   }
   if (entry.status === "unavailable") {
     return <EntryMessage title="现在暂时无法载入" description="请稍等片刻再试。当前请求不会创建或保存参与记录。" />;
+  }
+  if (!tableCode) {
+    return <EntryMessage title="无法开始本桌玩法" description="请重新扫描桌上的二维码，或向店员确认入口。" />;
   }
 
   return (
@@ -70,17 +74,14 @@ export function TableEntryView({ entry }: { entry: PublicTableEntry }) {
         </section>
 
         <div className="entryActions">
-          <div className="entryPrimaryGroup">
-            <Link className="entryPrimaryButton" href="/play/demo">先体验个人玩法</Link>
-            <p>演示，不会保存记录。</p>
-          </div>
+          <SoloAttemptControl tableCode={tableCode} />
           <div className="entryDuoGroup">
             <button className="entryDuoButton" type="button" disabled>
               <span>双人默契</span><span className="entryComingSoon">后续版本开放</span>
             </button>
           </div>
         </div>
-        <p className="entryPrivacy">本次入口只读取门店上架信息；还没有开始正式答题或保存个人答案。</p>
+        <p className="entryPrivacy">点击开始会创建匿名参与记录；本页不会提交答案，正式答题将在 M-008 接入。</p>
       </section>
     </EntryFrame>
   );

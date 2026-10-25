@@ -29,31 +29,40 @@ export async function startSoloAttempt(db: DomainDb, input: ActivityLocator & { 
   });
 }
 
-async function findOwnedAttempt(db: DomainDb, token: string, lock = false) {
+async function findOwnedAttempt(db: DomainDb, token: string, lock = false, venueId?: string) {
   const q = db.select({
     id: schema.attempts.id, publicationId: schema.attempts.publicationId, playGroupId: schema.attempts.playGroupId,
     mode: schema.attempts.mode, status: schema.attempts.status, consentedAt: schema.attempts.consentedAt,
     startedAt: schema.attempts.startedAt, completedAt: schema.attempts.completedAt,
     venueId: schema.publications.venueId, versionId: schema.publications.versionId, content: schema.activityVersions.content,
+    activityTitle: schema.activityTemplates.title,
   }).from(schema.attempts)
     .innerJoin(schema.publications, eq(schema.publications.id, schema.attempts.publicationId))
     .innerJoin(schema.activityVersions, and(
       eq(schema.activityVersions.id, schema.publications.versionId),
       eq(schema.activityVersions.venueId, schema.publications.venueId),
     ))
-    .where(eq(schema.attempts.sessionTokenHash, hashToken(token))).limit(1);
+    .innerJoin(schema.activityTemplates, and(
+      eq(schema.activityTemplates.id, schema.activityVersions.templateId),
+      eq(schema.activityTemplates.venueId, schema.activityVersions.venueId),
+    ))
+    .where(venueId === undefined
+      ? eq(schema.attempts.sessionTokenHash, hashToken(token))
+      : and(eq(schema.attempts.sessionTokenHash, hashToken(token)), eq(schema.publications.venueId, venueId)))
+    .limit(1);
   const rows = await (lock ? q.for("update") : q);
   if (!rows[0]) fail("NOT_FOUND");
   return rows[0];
 }
 
-export async function getAttemptProgress(db: DomainDb, input: { participantToken: string }) {
-  const attempt = await findOwnedAttempt(db, input.participantToken);
+export async function getAttemptProgress(db: DomainDb, input: { participantToken: string; venueId?: string }) {
+  const attempt = await findOwnedAttempt(db, input.participantToken, false, input.venueId);
   const rows = await db.select({ cueKey: schema.submissions.cueKey, answer: schema.submissions.answer, createdAt: schema.submissions.createdAt })
     .from(schema.submissions).where(eq(schema.submissions.attemptId, attempt.id));
   return {
     attemptId: attempt.id, mode: attempt.mode, status: attempt.status,
     startedAt: attempt.startedAt, completedAt: attempt.completedAt,
+    activity: { title: attempt.activityTitle, questionCount: attempt.content.cues.length },
     submissions: rows.map((row) => ({ cueKey: row.cueKey, optionIndex: (row.answer as { optionIndex: number }).optionIndex, createdAt: row.createdAt })),
   };
 }

@@ -44,3 +44,11 @@
 - 无效桌码走 Next.js 友好 not-found 页面；由于该动态页面以 Suspense 流式响应，运行时无效桌码响应状态为 HTTP 200（soft 404），页面 noindex。停用桌位、停用门店、无当前活动和数据库不可用有各自状态文案。桌码页设置 `no-store`、`no-referrer` 和 `noindex`，不在页面日志中记录原始码或底层错误。
 - 桌码页的个人入口只链接现有 `/play/demo`，并说明演示不保存记录；双人入口明确尚未开放。该页面不创建 Attempt、Submission、PlayGroup，也不引入公开 API。
 - 页面数据必须由配置的 PostgreSQL 读取。本地没有数据库连接配置，未采用 PGlite 文件数据库或伪造样例数据；PGlite 仅用于以正式 SQL migration 建库的集成测试。真实 PostgreSQL 与浏览器连库需在后续具备安全隔离的 PostgreSQL 环境时验证。
+
+## M-007 匿名个人参与与会话恢复
+
+- `POST /api/attempts/start` 接受严格 JSON `{ "tableCode": "..." }`；只解析桌码定位门店，再调用 M-005 `startSoloAttempt` 创建或凭 Cookie 恢复，不复制参与状态机。首次创建返回 201，恢复返回 200；`GET /api/attempts/current?tableCode=...` 只读返回该门店下当前 Cookie 对应的个人参与摘要。没有答案提交 API。
+- 会话凭证复用 M-005 的 32-byte 随机 token，客户端只通过 `moonlight_attempt` HttpOnly Cookie 持有；数据库仍只保留 SHA-256 哈希，JSON/页面不包含原始 token、哈希或内部 Attempt ID。Cookie 限于 `/api/attempts`、SameSite=Lax、30 天，HTTPS/production 设置 Secure；当前 M-004 Schema 没有 Attempt 过期字段，Cookie 过期后无法经普通浏览器恢复旧记录。
+- 写请求必须有与请求 Host + 协议完全一致的 Origin；Next 内部 URL 与入站 Host 不一致时按入站 Host 校验，反向代理可传递协议。缺失、无效、跨站或非 same-origin Fetch Metadata 均拒绝。没有 CORS 放宽。个人开始控件用 Web Locks 对同一浏览器多标签请求串行化；不支持 Web Locks 的浏览器会安全失败，不发送开始请求。
+- Route Handler 接受可注入的 Drizzle provider，测试通过 PGlite 和仓库 SQL migrations 调用实际 M-005 服务。生产适配器仍是 `pg`；测试注入不替换生产 DB，也不证明真实 PostgreSQL 或多实例并发行为。
+- M-006 的 Chrome 扩展自动化提供器在浏览器选择阶段报无法加载 request-header policy；脱敏诊断表明策略服务初始化 `POST https://ab.chatgpt.com/v1/initialize` 网络失败，应用页面请求未发出，因此没有本地 URL/Origin/Host/HTTP 状态或应用服务器错误可归因。改用 Codex 内置浏览器后本地页面导航与 `/play/demo` 三题交互成功；未放宽应用安全头或 CORS。

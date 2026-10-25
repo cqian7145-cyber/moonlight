@@ -16,17 +16,18 @@ export type PublicTableEntry =
 
 const TABLE_CODE_PATTERN = /^[A-Za-z0-9_-]{16,128}$/;
 
+export type CustomerTableContext =
+  | { status: "ready"; venueId: string; venueName: string }
+  | { status: "not_found" }
+  | { status: "table_paused" }
+  | { status: "venue_paused" };
+
 export function isValidPublicTableCode(value: string): boolean {
   return TABLE_CODE_PATTERN.test(value);
 }
 
-export async function getPublicTableEntry(
-  db: DomainDb,
-  tableCode: string,
-  dependencies?: Pick<ServiceDependencies, "clock">,
-): Promise<PublicTableEntry> {
+export async function getCustomerTableContext(db: DomainDb, tableCode: string): Promise<CustomerTableContext> {
   if (!isValidPublicTableCode(tableCode)) return { status: "not_found" };
-
   const [table] = await db.select({
     venueId: schema.venueTables.venueId,
     tableEnabled: schema.venueTables.isEnabled,
@@ -40,6 +41,16 @@ export async function getPublicTableEntry(
   if (!table) return { status: "not_found" };
   if (!table.tableEnabled) return { status: "table_paused" };
   if (table.venueStatus !== "active") return { status: "venue_paused" };
+  return { status: "ready", venueId: table.venueId, venueName: table.venueName };
+}
+
+export async function getPublicTableEntry(
+  db: DomainDb,
+  tableCode: string,
+  dependencies?: Pick<ServiceDependencies, "clock">,
+): Promise<PublicTableEntry> {
+  const table = await getCustomerTableContext(db, tableCode);
+  if (table.status !== "ready") return { status: table.status };
 
   try {
     const activity = await findAvailablePublication(db, table.venueId, serviceNow(dependencies));

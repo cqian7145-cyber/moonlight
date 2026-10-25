@@ -27,16 +27,18 @@ npm run dev
 
 - 首页介绍“酒馆扫码即玩”，可进入个人趣味题演示。
 - `/t/<tableCode>` 是正式只读桌码入口：校验哈希桌码并读取门店当前有效上架活动；需要配置 PostgreSQL `DATABASE_URL`，本地没有默认样例数据。
+- 顾客点击「自己玩」后，`POST /api/attempts/start` 创建或恢复匿名个人参与；`GET /api/attempts/current?tableCode=<tableCode>` 通过 HttpOnly Cookie 读取状态。接口不接收客户端 Attempt/Venue/Publication ID，不返回会话令牌或答案。
 - `/play/demo` 提供三道本地选择题、确定性趣味结果和重新开始。
 - `/staff`、`/admin` 仅说明尚未开发。
 - `/api/health` 提供不依赖数据库的健康检查。
 - `web/src/db/schema.ts` 定义 9 张 V1 游戏数据表；`/play/demo` 仍是独立前端演示，不读写数据库，也不代表正式参与记录。
+- Cookie 名为 `moonlight_attempt`，HttpOnly、SameSite=Lax、Path=`/api/attempts`、30 天有效；HTTPS/生产响应设 Secure，本地 HTTP 不设 Secure。写请求要求 Origin 与入站 Host/协议同源，缺少 Origin 时拒绝。
 - `web/drizzle/` 保存迁移。可运行 `npm run test:db` 验证迁移和 PostgreSQL 约束，无需配置数据库。
 - `npm run db:migrate:local` 仅接受 loopback PostgreSQL URL；它不会启动数据库。没有生产迁移命令。
 
 ## 尚未实现
 
-顾客匿名参与写入、答案提交、双人联机业务流程、登录、正式商家后台、AI、微信小程序、支付、上线及顾客数据采集均未实现。桌码入口只读门店当前上架活动；没有 `DATABASE_URL` 时页面显示暂不可用，不会生成演示门店或参与记录。数据库 schema 是后续业务开发的基础，不代表已有可部署的后端。
+答案提交、判分和结果页、双人联机业务流程、登录、正式商家后台、AI、微信小程序、支付和上线均未实现。桌码页的参与创建需要已配置的 PostgreSQL `DATABASE_URL`；没有数据库时页面与 API 安全地显示/返回暂不可用，不会生成演示门店或伪造参与记录。数据库 schema 和本地 PGlite 测试不代表已有可部署的生产后端。
 
 ## 目录
 

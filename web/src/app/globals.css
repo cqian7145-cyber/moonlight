@@ -128,12 +128,18 @@ a { color: inherit; }
 .entryActivityMeta { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 12px; }
 .entryActivity h2 { margin: 14px 0 0; font-size: clamp(20px, 4vw, 25px); line-height: 1.45; letter-spacing: -.025em; }
 .entryActions { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, .76fr); align-items: stretch; gap: 12px; margin-top: 16px; }
-.entryPrimaryGroup, .entryDuoGroup { min-width: 0; }
-.entryPrimaryGroup { display: flex; flex-direction: column; align-items: stretch; }
+.entryStartGroup, .entryDuoGroup { min-width: 0; }
+.entryStartGroup { display: flex; flex-direction: column; align-items: stretch; }
 .entryPrimaryButton, .entryDuoButton { min-height: 58px; display: flex; align-items: center; justify-content: center; padding: 12px 18px; border: 1px solid transparent; border-radius: 11px; font-size: 15px; font-weight: 670; text-align: center; text-decoration: none; transition: background-color 180ms ease, border-color 180ms ease, color 180ms ease, transform 180ms ease; }
 .entryPrimaryButton { color: white; background: var(--blue); }
 .entryPrimaryButton:hover { background: var(--blue-deep); transform: translateY(-1px); }
-.entryPrimaryGroup p { margin: 8px 2px 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.entryStartNote, .entryStartError { margin: 8px 2px 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.entryStartError { color: #a12828; }
+.entryStartStatus { min-height: 58px; display: flex; align-items: center; color: var(--muted); font-size: 13px; }
+.entrySaved { min-height: 58px; padding: 10px 14px; border: 1px solid #b8ddca; border-radius: 11px; background: #f2faf5; }
+.entrySavedLabel { margin: 0; color: #216244; font-size: 14px; font-weight: 700; }
+.entrySavedTitle { margin: 5px 0 0; color: var(--ink); font-size: 13px; font-weight: 650; }
+.entrySaved .entryStartNote { margin-top: 5px; }
 .entryDuoButton { width: 100%; flex-wrap: wrap; gap: 7px 9px; border-color: var(--rule); color: #697386; background: #f2f4f7; cursor: not-allowed; }
 .entryComingSoon { padding: 4px 7px; border-radius: 5px; color: #4a5362; background: #e6e9ef; font-size: 11px; font-weight: 600; }
 .entryPrivacy { margin: 22px 2px 0; color: var(--muted); font-size: 12px; line-height: 1.75; }
@@ -163,6 +169,7 @@ a { color: inherit; }
   .entryContent { padding: 48px 0 42px; }
   .entryActivity { margin-top: 29px; padding: 19px 18px 21px; }
   .entryActions { grid-template-columns: 1fr; }
+  .entrySaved, .entryStartStatus { min-height: 54px; }
   .entryPrivacy { margin-top: 17px; }
   .entryMessage { padding: 40px 24px; }
 }
