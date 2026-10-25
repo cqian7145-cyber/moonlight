@@ -1,0 +1,31 @@
+# Local-only product and task materials at repository root
+/MOONLIGHT_TASK_*.md
+/MOONLIGHT_M-*.md
+/MOONLIGHT_V1_DECISIONS_AND_TASKS.md
+/Moonlight_V1_产品与技术方案_2026-10-25.md
+
+# Internal or customer-related material
+*.pdf
+**/interviews/
+**/*interview*
+**/*访谈*
+**/real-user-data/
+**/*real-user-data*
+**/*真实用户数据*
+**/sensitive/
+
+# Credentials and local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Dependencies, caches, and generated output
+node_modules/
+.next/
+.cache/
+.tmp/
+coverage/
+/dist/
+/out/
