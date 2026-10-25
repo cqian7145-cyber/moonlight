@@ -67,6 +67,38 @@ export async function getAttemptProgress(db: DomainDb, input: { participantToken
   };
 }
 
+export async function getSoloQuestions(db: DomainDb, input: { participantToken: string; venueId?: string }) {
+  const attempt = await findOwnedAttempt(db, input.participantToken, false, input.venueId);
+  if (attempt.mode !== "solo") fail("NOT_FOUND");
+  const rawCues: unknown = attempt.content?.cues;
+  if (!Array.isArray(rawCues) || rawCues.length !== 3 || rawCues.some((cue: unknown) => {
+    if (!cue || typeof cue !== "object") return true;
+    const item = cue as { key?: unknown; prompt?: unknown; choices?: unknown };
+    return typeof item.key !== "string" || item.key.length === 0 || typeof item.prompt !== "string" ||
+      !Array.isArray(item.choices) || item.choices.length !== 3 ||
+      item.choices.some((choice: unknown) => typeof choice !== "string" || choice.trim().length === 0);
+  })) {
+    fail("ACTIVITY_UNAVAILABLE");
+  }
+  const cues = rawCues as { key: string; prompt: string; choices: string[] }[];
+  const rows = await db.select({ cueKey: schema.submissions.cueKey, answer: schema.submissions.answer, createdAt: schema.submissions.createdAt })
+    .from(schema.submissions).where(eq(schema.submissions.attemptId, attempt.id));
+  return {
+    attemptId: attempt.id,
+    mode: attempt.mode,
+    status: attempt.status,
+    startedAt: attempt.startedAt,
+    completedAt: attempt.completedAt,
+    activity: { title: attempt.activityTitle },
+    questions: cues.map((cue) => ({ cueKey: cue.key, prompt: cue.prompt, choices: [...cue.choices] })),
+    submissions: rows.map((row) => ({
+      cueKey: row.cueKey,
+      optionIndex: (row.answer as { optionIndex: number }).optionIndex,
+      createdAt: row.createdAt,
+    })),
+  };
+}
+
 export async function submitAnswer(db: DomainDb, input: { participantToken: string; cueKey: string; optionIndex: number }, dependencies?: Pick<ServiceDependencies, "clock">) {
   const now = serviceNow(dependencies);
   const outcome = await db.transaction(async (tx) => {

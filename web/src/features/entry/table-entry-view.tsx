@@ -48,7 +48,18 @@ export function TableEntryView({ entry, tableCode }: { entry: PublicTableEntry; 
     return <EntryMessage title="门店互动暂未开放" description="这家门店目前暂不提供桌边互动。" />;
   }
   if (entry.status === "no_activity") {
-    return <EntryMessage title="今晚还没有上架玩法" description="门店暂时没有可参与的小玩法，可以稍后再来看看。" />;
+    return (
+      <EntryFrame>
+        <section className="entryMessage" aria-labelledby="no-activity-title">
+          <span className="entryStatusMark" aria-hidden="true" />
+          <p className="entryEyebrow">MOONLIGHT · 桌边互动</p>
+          <h1 id="no-activity-title">今晚还没有上架玩法</h1>
+          <p className="entryDescription">门店暂时没有新的玩法。如果你已有进行中的参与，可以继续完成。</p>
+          {tableCode && <SoloAttemptControl tableCode={tableCode} allowStart={false} />}
+          <Link className="entrySecondaryLink" href="/">回到首页</Link>
+        </section>
+      </EntryFrame>
+    );
   }
   if (entry.status === "unavailable") {
     return <EntryMessage title="现在暂时无法载入" description="请稍等片刻再试。当前请求不会创建或保存参与记录。" />;
@@ -81,7 +92,7 @@ export function TableEntryView({ entry, tableCode }: { entry: PublicTableEntry; 
             </button>
           </div>
         </div>
-        <p className="entryPrivacy">点击开始会创建匿名参与记录；本页不会提交答案，正式答题将在 M-008 接入。</p>
+        <p className="entryPrivacy">开始后，答案会逐题保存；你可以在本设备恢复进度和结果。</p>
       </section>
     </EntryFrame>
   );

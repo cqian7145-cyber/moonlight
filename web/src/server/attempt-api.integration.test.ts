@@ -1,6 +1,7 @@
 import { PGlite } from "@electric-sql/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import { drizzle } from "drizzle-orm/pglite";
+import { eq } from "drizzle-orm";
 import { randomBytes } from "node:crypto";
 import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -19,7 +20,7 @@ const content = { cues: [
   { key: "q1", prompt: "选择一", choices: ["甲", "乙", "丙"] },
   { key: "q2", prompt: "选择二", choices: ["甲", "乙", "丙"] },
   { key: "q3", prompt: "选择三", choices: ["甲", "乙", "丙"] },
-] };
+], answerKey: [2, 2, 2], hiddenExplanation: "仅供后台使用" };
 
 let client: PGlite;
 let db: TestDatabase;
@@ -56,6 +57,26 @@ function getCurrent(tableCode: string, cookie?: string) {
   const headers = new Headers();
   if (cookie) headers.set("cookie", cookie);
   return handlers.current(new Request(`${baseUrl}/api/attempts/current?tableCode=${encodeURIComponent(tableCode)}`, { headers }));
+}
+
+function getQuestions(tableCode: string, cookie?: string) {
+  const headers = new Headers();
+  if (cookie) headers.set("cookie", cookie);
+  return handlers.questions(new Request(`${baseUrl}/api/attempts/questions?tableCode=${encodeURIComponent(tableCode)}`, { headers }));
+}
+
+function postAnswer(body: unknown, cookie?: string, options: { origin?: string | null } = {}) {
+  const url = `${baseUrl}/api/attempts/answer`;
+  const headers = new Headers({ "content-type": "application/json", host: new URL(url).host });
+  if (options.origin !== null) headers.set("origin", options.origin ?? baseUrl);
+  if (cookie) headers.set("cookie", cookie);
+  return handlers.answer(new Request(url, { method: "POST", headers, body: JSON.stringify(body) }));
+}
+
+function getResult(tableCode: string, cookie?: string) {
+  const headers = new Headers();
+  if (cookie) headers.set("cookie", cookie);
+  return handlers.result(new Request(`${baseUrl}/api/attempts/result?tableCode=${encodeURIComponent(tableCode)}`, { headers }));
 }
 
 function cookieFrom(response: Response) {
@@ -198,5 +219,139 @@ describe("anonymous solo attempt HTTP handlers backed by the checked-in migratio
     const body = await response.text();
     expect(body).toBe('{"error":"service_unavailable"}');
     expect(body).not.toContain("private connection detail");
+  });
+
+  it("reads only the owned attempt's safe immutable questions and restores partial answers without writes", async () => {
+    const entry = await fixture();
+    expect((await getQuestions(entry.tableCode)).status).toBe(401);
+    const started = await post({ tableCode: entry.tableCode });
+    const cookie = cookieFrom(started);
+
+    const questionsResponse = await getQuestions(entry.tableCode, cookie);
+    expect(questionsResponse.status).toBe(200);
+    const questions = await questionsResponse.json();
+    expect(questions).toMatchObject({
+      attempt: { status: "in_progress", answeredCount: 0 },
+      activity: { title: "今晚的微醺灵感" },
+      submissions: [],
+    });
+    expect(questions.questions).toHaveLength(3);
+    expect(questions.questions[0]).toEqual({ cueKey: "q1", prompt: "选择一", choices: ["甲", "乙", "丙"] });
+    expect(JSON.stringify(questions)).not.toMatch(/answerKey|hiddenExplanation|sessionTokenHash|participantToken|attemptId|publicationId|venueId/);
+    expect(await db.select().from(schema.submissions)).toHaveLength(0);
+
+    const answer = await postAnswer({ tableCode: entry.tableCode, cueKey: "q1", optionIndex: 2 }, cookie);
+    expect(answer.status).toBe(201);
+    expect(await answer.json()).toMatchObject({ outcome: "created", attempt: { status: "in_progress", answeredCount: 1 } });
+    const restored = await getQuestions(entry.tableCode, cookie);
+    expect(await restored.json()).toMatchObject({
+      attempt: { status: "in_progress", answeredCount: 1 },
+      submissions: [{ cueKey: "q1", optionIndex: 2 }],
+    });
+    expect(await db.select().from(schema.submissions)).toHaveLength(1);
+  });
+
+  it("persists three distinct answers, protects retries, completes once, and restores the same deterministic solo result", async () => {
+    const entry = await fixture();
+    const started = await post({ tableCode: entry.tableCode });
+    const cookie = cookieFrom(started);
+
+    const first = await postAnswer({ tableCode: entry.tableCode, cueKey: "q1", optionIndex: 0 }, cookie);
+    expect(first.status).toBe(201);
+    const repeated = await postAnswer({ tableCode: entry.tableCode, cueKey: "q1", optionIndex: 0 }, cookie);
+    expect(repeated.status).toBe(200);
+    expect(await repeated.json()).toMatchObject({ outcome: "duplicate", attempt: { status: "in_progress", answeredCount: 1 } });
+    const conflict = await postAnswer({ tableCode: entry.tableCode, cueKey: "q1", optionIndex: 1 }, cookie);
+    expect(conflict.status).toBe(409);
+    expect(await conflict.json()).toEqual({ error: "answer_conflict" });
+
+    expect((await postAnswer({ tableCode: entry.tableCode, cueKey: "unknown", optionIndex: 0 }, cookie)).status).toBe(400);
+    expect((await postAnswer({ tableCode: entry.tableCode, cueKey: "q2", optionIndex: 3 }, cookie)).status).toBe(400);
+    expect((await postAnswer({ tableCode: entry.tableCode, cueKey: "q2", optionIndex: 0 }, cookie, { origin: "https://attacker.example" })).status).toBe(403);
+    expect(await db.select().from(schema.submissions)).toHaveLength(1);
+
+    const second = await postAnswer({ tableCode: entry.tableCode, cueKey: "q2", optionIndex: 0 }, cookie);
+    expect(second.status).toBe(201);
+    expect(await second.json()).toMatchObject({ attempt: { status: "in_progress", answeredCount: 2 } });
+    expect((await getResult(entry.tableCode, cookie)).status).toBe(409);
+    const third = await postAnswer({ tableCode: entry.tableCode, cueKey: "q3", optionIndex: 1 }, cookie);
+    expect(third.status).toBe(200);
+    expect(await third.json()).toMatchObject({ attempt: { status: "completed", answeredCount: 3 } });
+    expect(await db.select().from(schema.submissions)).toHaveLength(3);
+    expect(await db.select().from(schema.attempts)).toHaveLength(1);
+
+    const resultResponse = await getResult(entry.tableCode, cookie);
+    expect(resultResponse.status).toBe(200);
+    const result = await resultResponse.json();
+    expect(result).toMatchObject({ result: { id: "easygoing", title: expect.any(String) } });
+    expect(JSON.stringify(result)).not.toMatch(/attemptId|participantToken|sessionTokenHash/);
+    expect(await (await getResult(entry.tableCode, cookie)).json()).toEqual(result);
+    expect(await (await getQuestions(entry.tableCode, cookie)).json()).toMatchObject({
+      attempt: { status: "completed", answeredCount: 3 },
+      submissions: expect.arrayContaining([
+        expect.objectContaining({ cueKey: "q1", optionIndex: 0 }),
+        expect.objectContaining({ cueKey: "q2", optionIndex: 0 }),
+        expect.objectContaining({ cueKey: "q3", optionIndex: 1 }),
+      ]),
+    });
+
+    const completedRetry = await postAnswer({ tableCode: entry.tableCode, cueKey: "q3", optionIndex: 1 }, cookie);
+    expect(completedRetry.status).toBe(200);
+    expect(await completedRetry.json()).toMatchObject({ outcome: "duplicate", attempt: { status: "completed", answeredCount: 3 } });
+    const closed = await postAnswer({ tableCode: entry.tableCode, cueKey: "q3", optionIndex: 2 }, cookie);
+    expect(closed.status).toBe(409);
+    expect(await db.select().from(schema.submissions)).toHaveLength(3);
+  });
+
+  it("does not return questions or results for a different venue, abandoned attempt, or missing session", async () => {
+    const firstVenue = await fixture();
+    const secondVenue = await fixture({}, "另一家门店");
+    const started = await post({ tableCode: firstVenue.tableCode });
+    const cookie = cookieFrom(started);
+    expect((await getQuestions(secondVenue.tableCode, cookie)).status).toBe(401);
+    expect((await getResult(firstVenue.tableCode, cookie)).status).toBe(409);
+    expect((await postAnswer({ tableCode: firstVenue.tableCode, cueKey: "q1", optionIndex: 0 })).status).toBe(401);
+    await db.update(schema.attempts).set({ status: "abandoned" }).where(eq(schema.attempts.sessionTokenHash, hashToken(cookie.split("=")[1]!)));
+    expect((await getQuestions(firstVenue.tableCode, cookie)).status).toBe(409);
+    expect((await postAnswer({ tableCode: firstVenue.tableCode, cueKey: "q1", optionIndex: 0 }, cookie)).status).toBe(409);
+    expect(await db.select().from(schema.submissions)).toHaveLength(0);
+  });
+
+  it("continues an existing attempt from its bound immutable package after the publication is deactivated", async () => {
+    const entry = await fixture();
+    const started = await post({ tableCode: entry.tableCode });
+    const cookie = cookieFrom(started);
+    await db.update(schema.publications).set({ status: "inactive", deactivatedAt: new Date() })
+      .where(eq(schema.publications.id, entry.publication.id));
+
+    const questions = await getQuestions(entry.tableCode, cookie);
+    expect(questions.status).toBe(200);
+    expect(await questions.json()).toMatchObject({ activity: { title: "今晚的微醺灵感" }, questions: expect.any(Array) });
+    const answer = await postAnswer({ tableCode: entry.tableCode, cueKey: "q1", optionIndex: 1 }, cookie);
+    expect(answer.status).toBe(201);
+    expect(await db.select().from(schema.submissions)).toHaveLength(1);
+  });
+
+  it("fails closed without exposing adapter details for the new answer and result endpoints", async () => {
+    const unavailable = createAttemptApiHandlers({ databaseProvider: () => { throw new Error("private connection detail"); } });
+    const cookie = `moonlight_attempt=${randomBytes(32).toString("base64url")}`;
+    const code = randomBytes(32).toString("base64url");
+    const questionResponse = await unavailable.questions(new Request(`${baseUrl}/api/attempts/questions?tableCode=${code}`, {
+      headers: { cookie },
+    }));
+    expect(questionResponse.status).toBe(503);
+    const answerUrl = `${baseUrl}/api/attempts/answer`;
+    const answerResponse = await unavailable.answer(new Request(answerUrl, {
+      method: "POST", headers: { cookie, origin: baseUrl, host: new URL(answerUrl).host, "content-type": "application/json" },
+      body: JSON.stringify({ tableCode: code, cueKey: "q1", optionIndex: 0 }),
+    }));
+    expect(answerResponse.status).toBe(503);
+    const resultResponse = await unavailable.result(new Request(`${baseUrl}/api/attempts/result?tableCode=${code}`, {
+      headers: { cookie },
+    }));
+    expect(resultResponse.status).toBe(503);
+    for (const response of [questionResponse, answerResponse, resultResponse]) {
+      expect(await response.text()).toBe('{"error":"service_unavailable"}');
+    }
   });
 });

@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 type AttemptResponse = {
@@ -23,7 +25,7 @@ async function requestCurrent(tableCode: string): Promise<AttemptResponse | null
   return await response.json() as AttemptResponse;
 }
 
-export function SoloAttemptView({ state, onStart }: { state: AttemptViewState; onStart: () => void }) {
+export function SoloAttemptView({ state, tableCode, allowStart = true, onStart }: { state: AttemptViewState; tableCode: string; allowStart?: boolean; onStart: () => void }) {
   if (state.kind === "loading") {
     return <div className="entryStartStatus" role="status" aria-live="polite">正在确认参与状态…</div>;
   }
@@ -37,9 +39,19 @@ export function SoloAttemptView({ state, onStart }: { state: AttemptViewState; o
       <section className="entrySaved" aria-live="polite">
         <p className="entrySavedLabel">{message}</p>
         <p className="entrySavedTitle">{activity.title}</p>
-        <p className="entryStartNote">正式答题将在 M-008 接入；目前还没有提交答案。</p>
+        {attempt.status !== "abandoned" && <Link className="entryContinueLink" href={`/play/${encodeURIComponent(tableCode)}`}>
+          {attempt.status === "completed" ? "查看结果" : "继续答题"}
+        </Link>}
       </section>
     );
+  }
+
+  if (!allowStart) {
+    return <div className="entryStartGroup">
+      {state.kind === "error"
+        ? <p className="entryStartError" role="alert">{state.message}</p>
+        : <p className="entryStartNote">没有进行中的参与；当前没有可开始的新玩法。</p>}
+    </div>;
   }
 
   return (
@@ -54,7 +66,8 @@ export function SoloAttemptView({ state, onStart }: { state: AttemptViewState; o
   );
 }
 
-export function SoloAttemptControl({ tableCode }: { tableCode: string }) {
+export function SoloAttemptControl({ tableCode, allowStart = true }: { tableCode: string; allowStart?: boolean }) {
+  const router = useRouter();
   const [state, setState] = useState<AttemptViewState>({ kind: "loading" });
   const inFlight = useRef(false);
 
@@ -99,6 +112,7 @@ export function SoloAttemptControl({ tableCode }: { tableCode: string }) {
       }
       const result = await navigator.locks.request(START_LOCK_NAME, startLocked);
       setState({ kind: "saved", data: result });
+      router.push(`/play/${encodeURIComponent(tableCode)}`);
     } catch (error) {
       setState({ kind: "error", message: error instanceof Error ? error.message : "暂时无法开始，请稍后重试。" });
     } finally {
@@ -106,5 +120,5 @@ export function SoloAttemptControl({ tableCode }: { tableCode: string }) {
     }
   }
 
-  return <SoloAttemptView state={state} onStart={createOrRestore} />;
+  return <SoloAttemptView state={state} tableCode={tableCode} allowStart={allowStart} onStart={createOrRestore} />;
 }

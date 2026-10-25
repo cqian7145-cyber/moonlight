@@ -15,25 +15,25 @@ const saved: AttemptViewState = {
 describe("solo attempt customer handoff", () => {
   it("shows an explicit start action and states that starting will save anonymous participation", () => {
     const html = renderToStaticMarkup(createElement(SoloAttemptView, {
-      state: { kind: "idle" }, onStart: vi.fn(),
+      state: { kind: "idle" }, tableCode: "table-code-test", onStart: vi.fn(),
     }));
     expect(html).toContain("自己玩");
     expect(html).toContain("点击后会保存一条匿名参与记录");
     expect(html).not.toContain("href=\"/play/demo\"");
   });
 
-  it("shows the saved activity without claiming that answers were submitted", () => {
-    const html = renderToStaticMarkup(createElement(SoloAttemptView, { state: saved, onStart: vi.fn() }));
+  it("offers a link to the real personal flow for the saved attempt", () => {
+    const html = renderToStaticMarkup(createElement(SoloAttemptView, { state: saved, tableCode: "table-code-test", onStart: vi.fn() }));
     expect(html).toContain("参与已保存");
     expect(html).toContain("今晚的微醺灵感");
-    expect(html).toContain("正式答题将在 M-008 接入");
-    expect(html).toContain("还没有提交答案");
+    expect(html).toContain("/play/table-code-test");
+    expect(html).toContain("继续答题");
     expect(html).not.toContain("href=\"/play/demo\"");
   });
 
   it("exposes start errors as an accessible alert", () => {
     const html = renderToStaticMarkup(createElement(SoloAttemptView, {
-      state: { kind: "error", message: "服务暂时不可用" }, onStart: vi.fn(),
+      state: { kind: "error", message: "服务暂时不可用" }, tableCode: "table-code-test", onStart: vi.fn(),
     }));
     expect(html).toContain('role="alert"');
     expect(html).toContain("服务暂时不可用");

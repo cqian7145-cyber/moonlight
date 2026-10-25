@@ -61,3 +61,14 @@
 - SQL 验收最终记录 3 条虚构 `solo/in_progress` Attempt、0 条 Submission。三条来自独立匿名浏览器配置文件；其中一次早期 Playwright 检查把生产模式正确发送的 `Secure` 属性误判为期望 false，浏览器在创建后关闭，留下一个不可恢复的虚构测试行。没有清理或删除它；后续同一 Chrome 配置文件的刷新、多标签和重试均不再增加行数。任务验收前后没有触碰真实顾客数据。
 - 本地根路由、`/play/demo`、`/staff`、`/admin`、`/api/health` 均返回 HTTP 200。浏览器 request-header policy 提供器仍在应用导航前失败；本次通过已安装 Chrome + Playwright 的本地临时安装完成真实浏览器验收，没有放宽应用安全头或 CORS。
 - 未进行多 PostgreSQL 客户端事务/锁竞争测试（层 D `NOT_RUN`）；未测试首次无 Cookie 的并行 POST。M-007 Web Locks 只覆盖同一支持该 API 的浏览器 UI 多标签，服务端没有跨实例幂等键；两个首次无 Cookie 的并发 POST 仍可能创建两个独立匿名参与。Cookie 30 天过期后因 Schema 无参与记录过期字段而无法恢复旧记录。
+
+## M-008 正式个人答题与结果恢复
+
+- `GET /api/attempts/questions?tableCode=...` 以 HttpOnly Cookie 和当前桌码解出参与者作用域，再从 Attempt 的 `publication_id -> activity_version` 读取当时绑定的不可变三题；响应只投影 `cueKey`、展示文字、合法选项、本人的已答进度和活动标题，不返回版本原始 JSON、答案键、Attempt ID 或会话令牌。
+- `POST /api/attempts/answer` 只接收 `{tableCode,cueKey,optionIndex}`，复用 M-005 `submitAnswer` 事务/唯一约束/完成状态转换。相同答案重试不新增行；已提交题目的不同答案返回冲突；最后一道有效题写入时 M-005 在事务内自动标记 Attempt completed。完成后相同请求通过只读核对返回 duplicate，不再写库；其他答案不得覆盖既有选择。
+- `GET /api/attempts/result?tableCode=...` 先校验参与和门店作用域，再复用 M-005 `getSoloResult` 及确定性 `calculateSoloResult`；未完成时不泄露结果。没有引入 AI、双人交互、迁移或新的存储依赖。
+- `/play/<tableCode>` 只从服务端重新读取题目和进度；提交成功响应并再次确认服务端状态后才前进，网络中断时可重试。完成后刷新通过已完成 Attempt 取回相同结果。上架活动下架后，只要桌位及门店仍有效，已开始的个人 Attempt 按 M-005 绑定版本继续；桌位/门店停用仍按 M-007 的入口范围拒绝访问。Cookie 生命周期、活动题目 3x3 限制沿用旧规则。
+- 正式答题页设置 no-store、no-referrer 和 noindex。`/play/demo` 仍是独立本地演示，不读写数据库。
+- M-008 实测基线来自 M-007B 虚构 PostgreSQL：3 条 `in_progress` Attempt、0 条 Submission。一次早期真实 Chrome 检查因测试选择器失配在提交前退出，产生一条未答的虚构 Attempt；没有删除。正式 Chrome 流程创建了另 1 条 Attempt 并完成 3 道不同 cueKey 答题；最终 SQL 为 4 条 `in_progress`（包含旧基线三条和未答测试行）、1 条 `completed`、3 条 Submission、3 个不同 cueKey。正式流程刷新与第二标签重复读取同一结果，记录数不变。
+- Playwright 驱动本机 Chrome 的成功记录：开始 `201`；三题提交 `201/201/200`；相同答案重复 `200 duplicate`；不同答案 `409 answer_conflict`；无 Cookie 读题 `401`。375px 和 390px 视口均无横向溢出。API 集成测试从正式 SQL Migration 的 PGlite 实例执行；全套 Vitest 63 项通过，另验证下架 publication 后旧 Attempt 仍使用绑定版本继续答题。
+- PostgreSQL 18.6 的 migration 仍为 1 条、public 表 9 张；本任务未修改 SQL Migration。真实 PG 多客户端并发专项为 `NOT_RUN`，顺序浏览器测试不能证明跨客户端锁竞争。
