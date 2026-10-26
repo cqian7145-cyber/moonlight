@@ -35,9 +35,11 @@ async function findOwnedAttempt(db: DomainDb, token: string, lock = false, venue
     mode: schema.attempts.mode, status: schema.attempts.status, consentedAt: schema.attempts.consentedAt,
     startedAt: schema.attempts.startedAt, completedAt: schema.attempts.completedAt,
     venueId: schema.publications.venueId, versionId: schema.publications.versionId, content: schema.activityVersions.content,
+    venueStatus: schema.venues.status,
     activityTitle: sql<string>`coalesce(${schema.activityVersions.content}->>'title', ${schema.activityTemplates.title})`,
   }).from(schema.attempts)
     .innerJoin(schema.publications, eq(schema.publications.id, schema.attempts.publicationId))
+    .innerJoin(schema.venues, eq(schema.venues.id, schema.publications.venueId))
     .innerJoin(schema.activityVersions, and(
       eq(schema.activityVersions.id, schema.publications.versionId),
       eq(schema.activityVersions.venueId, schema.publications.venueId),
@@ -57,6 +59,7 @@ async function findOwnedAttempt(db: DomainDb, token: string, lock = false, venue
 
 export async function getAttemptProgress(db: DomainDb, input: { participantToken: string; venueId?: string }) {
   const attempt = await findOwnedAttempt(db, input.participantToken, false, input.venueId);
+  if (attempt.venueStatus !== "active") fail("ACTIVITY_UNAVAILABLE");
   const rows = await db.select({ cueKey: schema.submissions.cueKey, answer: schema.submissions.answer, createdAt: schema.submissions.createdAt })
     .from(schema.submissions).where(eq(schema.submissions.attemptId, attempt.id));
   return {
@@ -70,6 +73,7 @@ export async function getAttemptProgress(db: DomainDb, input: { participantToken
 async function getQuestionsForMode(db: DomainDb, input: { participantToken: string; venueId?: string }, expectedMode: "solo" | "duo") {
   const attempt = await findOwnedAttempt(db, input.participantToken, false, input.venueId);
   if (attempt.mode !== expectedMode) fail("NOT_FOUND");
+  if (attempt.venueStatus !== "active") fail("ACTIVITY_UNAVAILABLE");
   const rawCues: unknown = attempt.content?.cues;
   if (!Array.isArray(rawCues) || rawCues.length !== 3 || rawCues.some((cue: unknown) => {
     if (!cue || typeof cue !== "object") return true;
@@ -126,6 +130,7 @@ export async function submitAnswer(db: DomainDb, input: { participantToken: stri
         .where(eq(schema.playGroups.id, tokenAttempt.playGroupId)).for("update").limit(1);
     }
     const attempt = await findOwnedAttempt(tx, input.participantToken, true);
+    if (attempt.venueStatus !== "active") fail("ACTIVITY_UNAVAILABLE");
     if (attempt.status !== "in_progress") fail("ATTEMPT_CLOSED");
     if (!Array.isArray(attempt.content.cues) || attempt.content.cues.length !== 3) fail("ACTIVITY_UNAVAILABLE");
     if (attempt.mode === "duo") {
@@ -166,6 +171,7 @@ export async function submitAnswer(db: DomainDb, input: { participantToken: stri
 
 export async function getSoloResult(db: DomainDb, input: { participantToken: string }) {
   const attempt = await findOwnedAttempt(db, input.participantToken);
+  if (attempt.venueStatus !== "active") fail("ACTIVITY_UNAVAILABLE");
   if (attempt.mode !== "solo" || attempt.status !== "completed") fail("RESULT_NOT_READY");
   const submissions = await db.select({ cueKey: schema.submissions.cueKey, answer: schema.submissions.answer })
     .from(schema.submissions).where(eq(schema.submissions.attemptId, attempt.id));

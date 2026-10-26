@@ -7,6 +7,7 @@ import { merchantJson } from "./merchant-api";
 import type { MerchantAuthDb } from "../lib/merchant-auth";
 import type { createMerchantAuth } from "../lib/merchant-auth";
 import { requireVenueMember, requireVenueOwner } from "./venue-auth";
+import { consumeRequestLimit, pruneExpiredRequestLimits, requestLimitIdentity } from "./request-limiter";
 
 type MerchantAuth = ReturnType<typeof createMerchantAuth>;
 
@@ -33,7 +34,9 @@ function validPublicOrigin(value: string) {
 
 function writeOriginAllowed(request: Request, trustedOrigin: string) {
   const expected = new URL(trustedOrigin);
-  return request.headers.get("origin") === expected.origin && request.headers.get("host")?.toLowerCase() === expected.host.toLowerCase();
+  const fetchSite = request.headers.get("sec-fetch-site");
+  return request.headers.get("origin") === expected.origin && request.headers.get("host")?.toLowerCase() === expected.host.toLowerCase()
+    && (fetchSite === null || fetchSite === "same-origin");
 }
 
 async function readJson(request: Request, maximum = 32_768): Promise<unknown | null> {
@@ -81,6 +84,15 @@ export function createMerchantOperationsHandlers(db: MerchantAuthDb, auth: Merch
   const publicOrigin = validPublicOrigin(options.publicOrigin);
   const now = options.now ?? (() => new Date());
   const createCode = options.createCode ?? newToken;
+
+  async function writeRateLimit(request: Request, userId: string, operation: string) {
+    const result = await consumeRequestLimit(db as never, { operation: `merchant-${operation}`, identity: requestLimitIdentity(request, userId), maximum: 30, windowMs: 60_000 });
+    await pruneExpiredRequestLimits(db as never);
+    if (result.allowed) return null;
+    const response = merchantJson(429, { error: "rate_limited" });
+    response.headers.set("Retry-After", String(result.retryAfterSeconds));
+    return response;
+  }
 
   async function ownerAccess(request: Request, venueId: string) {
     if (!venueIdPattern.test(venueId)) return { kind: "forbidden" as const };
@@ -160,12 +172,23 @@ export function createMerchantOperationsHandlers(db: MerchantAuthDb, auth: Merch
       if (!writeOriginAllowed(request, publicOrigin)) return merchantJson(403, { error: "same_origin_required" });
       const access = await ownerAccess(request, venueId);
       if (access.kind !== "allowed") return merchantJson(accessStatus(access.kind), { error: access.kind === "unauthenticated" ? "authentication_required" : "venue_access_denied" });
+      const limited = await writeRateLimit(request, access.user.id, "draft-create");
+      if (limited) return limited;
       const parsed = draftInput.safeParse(await readJson(request));
       if (!parsed.success) return merchantJson(400, { error: "invalid_activity_draft" });
-      const [template] = await db.insert(schema.activityTemplates).values({
-        venueId, title: parsed.data.title, status: "draft", draftContent: makeDraft(parsed.data), updatedAt: now(),
-      }).returning();
-      return merchantJson(201, { template: { id: template!.id, title: template!.draftContent!.title, status: template!.status, draftContent: template!.draftContent } });
+      const template = await db.transaction(async (tx) => {
+        const [membership] = await tx.select({ id: schema.venueMembers.id }).from(schema.venueMembers).where(and(
+          eq(schema.venueMembers.venueId, venueId), eq(schema.venueMembers.userId, access.user.id),
+          eq(schema.venueMembers.role, "owner"), eq(schema.venueMembers.status, "active"),
+        )).for("update").limit(1);
+        if (!membership) return null;
+        const [created] = await tx.insert(schema.activityTemplates).values({
+          venueId, title: parsed.data.title, status: "draft", draftContent: makeDraft(parsed.data), updatedAt: now(),
+        }).returning();
+        return created;
+      });
+      if (!template) return merchantJson(403, { error: "venue_access_denied" });
+      return merchantJson(201, { template: { id: template.id, title: template.draftContent!.title, status: template.status, draftContent: template.draftContent } });
     } catch {
       return merchantJson(503, { error: "merchant_service_unavailable" });
     }
@@ -176,21 +199,29 @@ export function createMerchantOperationsHandlers(db: MerchantAuthDb, auth: Merch
       if (!writeOriginAllowed(request, publicOrigin)) return merchantJson(403, { error: "same_origin_required" });
       const access = await ownerAccess(request, venueId);
       if (access.kind !== "allowed") return merchantJson(accessStatus(access.kind), { error: access.kind === "unauthenticated" ? "authentication_required" : "venue_access_denied" });
+      const limited = await writeRateLimit(request, access.user.id, "draft-update");
+      if (limited) return limited;
       const parsed = draftInput.safeParse(await readJson(request));
       if (!parsed.success) return merchantJson(400, { error: "invalid_activity_draft" });
       const result = await db.transaction(async (tx) => {
+        const [membership] = await tx.select({ id: schema.venueMembers.id }).from(schema.venueMembers).where(and(
+          eq(schema.venueMembers.venueId, venueId), eq(schema.venueMembers.userId, access.user.id),
+          eq(schema.venueMembers.role, "owner"), eq(schema.venueMembers.status, "active"),
+        )).for("update").limit(1);
+        if (!membership) return { kind: "forbidden" as const };
         const [template] = await tx.select().from(schema.activityTemplates).where(and(
           eq(schema.activityTemplates.id, templateId), eq(schema.activityTemplates.venueId, venueId),
         )).for("update").limit(1);
-        if (!template || template.status === "archived") return null;
+        if (!template || template.status === "archived") return { kind: "not_found" as const };
         const draftContent = makeDraft(parsed.data, template.draftContent);
         const [updated] = await tx.update(schema.activityTemplates).set({
         draftContent, updatedAt: now(),
         }).where(eq(schema.activityTemplates.id, template.id)).returning();
-        return updated;
+        return { kind: "updated" as const, template: updated! };
       });
-      if (!result) return merchantJson(404, { error: "activity_not_found" });
-      return merchantJson(200, { template: { id: result.id, title: result.draftContent?.title ?? result.title, status: result.status, draftContent: result.draftContent } });
+      if (result.kind === "forbidden") return merchantJson(403, { error: "venue_access_denied" });
+      if (result.kind === "not_found") return merchantJson(404, { error: "activity_not_found" });
+      return merchantJson(200, { template: { id: result.template.id, title: result.template.draftContent?.title ?? result.template.title, status: result.template.status, draftContent: result.template.draftContent } });
     } catch {
       return merchantJson(503, { error: "merchant_service_unavailable" });
     }
@@ -201,6 +232,8 @@ export function createMerchantOperationsHandlers(db: MerchantAuthDb, auth: Merch
       if (!writeOriginAllowed(request, publicOrigin)) return merchantJson(403, { error: "same_origin_required" });
       const access = await ownerAccess(request, venueId);
       if (access.kind !== "allowed") return merchantJson(accessStatus(access.kind), { error: access.kind === "unauthenticated" ? "authentication_required" : "venue_access_denied" });
+      const limited = await writeRateLimit(request, access.user.id, "publish");
+      if (limited) return limited;
       const body = await readJson(request);
       const expected = z.object({ expectedCurrentPublicationId: z.string().uuid().nullable() }).strict().safeParse(body);
       if (!expected.success) return merchantJson(400, { error: "invalid_request" });
@@ -260,6 +293,8 @@ export function createMerchantOperationsHandlers(db: MerchantAuthDb, auth: Merch
       if (!writeOriginAllowed(request, publicOrigin)) return merchantJson(403, { error: "same_origin_required" });
       const access = await ownerAccess(request, venueId);
       if (access.kind !== "allowed") return merchantJson(accessStatus(access.kind), { error: access.kind === "unauthenticated" ? "authentication_required" : "venue_access_denied" });
+      const limited = await writeRateLimit(request, access.user.id, "unpublish");
+      if (limited) return limited;
       const parsed = z.object({ expectedCurrentPublicationId: z.string().uuid() }).strict().safeParse(await readJson(request));
       if (!parsed.success) return merchantJson(400, { error: "invalid_request" });
       const result = await db.transaction(async (tx) => {
@@ -323,14 +358,25 @@ export function createMerchantOperationsHandlers(db: MerchantAuthDb, auth: Merch
       if (!writeOriginAllowed(request, publicOrigin)) return merchantJson(403, { error: "same_origin_required" });
       const access = await ownerAccess(request, venueId);
       if (access.kind !== "allowed") return merchantJson(accessStatus(access.kind), { error: access.kind === "unauthenticated" ? "authentication_required" : "venue_access_denied" });
+      const limited = await writeRateLimit(request, access.user.id, "table-create");
+      if (limited) return limited;
       const parsed = z.object({ name: z.string().trim().min(1).max(80) }).strict().safeParse(await readJson(request));
       if (!parsed.success) return merchantJson(400, { error: "invalid_table_name" });
       const code = createCode();
       if (!/^[A-Za-z0-9_-]{43}$/.test(code)) return merchantJson(503, { error: "merchant_service_unavailable" });
-      const [table] = await db.insert(schema.venueTables).values({ venueId, name: parsed.data.name, publicCodeHash: hashToken(code) }).returning({
-        id: schema.venueTables.id, venueId: schema.venueTables.venueId, name: schema.venueTables.name,
-        isEnabled: schema.venueTables.isEnabled, createdAt: schema.venueTables.createdAt,
+      const table = await db.transaction(async (tx) => {
+        const [membership] = await tx.select({ id: schema.venueMembers.id }).from(schema.venueMembers).where(and(
+          eq(schema.venueMembers.venueId, venueId), eq(schema.venueMembers.userId, access.user.id),
+          eq(schema.venueMembers.role, "owner"), eq(schema.venueMembers.status, "active"),
+        )).for("update").limit(1);
+        if (!membership) return null;
+        const [created] = await tx.insert(schema.venueTables).values({ venueId, name: parsed.data.name, publicCodeHash: hashToken(code) }).returning({
+          id: schema.venueTables.id, venueId: schema.venueTables.venueId, name: schema.venueTables.name,
+          isEnabled: schema.venueTables.isEnabled, createdAt: schema.venueTables.createdAt,
+        });
+        return created;
       });
+      if (!table) return merchantJson(403, { error: "venue_access_denied" });
       return merchantJson(201, { table, tableCode: code, printUrl: new URL(`/t/${code}`, publicOrigin).toString() });
     } catch (error) {
       if (typeof error === "object" && error !== null && "cause" in error && (error as { cause?: { code?: string } }).cause?.code === "23505") {
@@ -345,13 +391,24 @@ export function createMerchantOperationsHandlers(db: MerchantAuthDb, auth: Merch
       if (!writeOriginAllowed(request, publicOrigin)) return merchantJson(403, { error: "same_origin_required" });
       const access = await ownerAccess(request, venueId);
       if (access.kind !== "allowed") return merchantJson(accessStatus(access.kind), { error: access.kind === "unauthenticated" ? "authentication_required" : "venue_access_denied" });
+      const limited = await writeRateLimit(request, access.user.id, "table-update");
+      if (limited) return limited;
       const parsed = z.object({ enabled: z.boolean() }).strict().safeParse(await readJson(request));
       if (!parsed.success) return merchantJson(400, { error: "invalid_request" });
-      const [table] = await db.update(schema.venueTables).set({ isEnabled: parsed.data.enabled }).where(and(
-        eq(schema.venueTables.id, tableId), eq(schema.venueTables.venueId, venueId),
-      )).returning({ id: schema.venueTables.id, name: schema.venueTables.name, isEnabled: schema.venueTables.isEnabled });
-      if (!table) return merchantJson(404, { error: "table_not_found" });
-      return merchantJson(200, { table });
+      const result = await db.transaction(async (tx) => {
+        const [membership] = await tx.select({ id: schema.venueMembers.id }).from(schema.venueMembers).where(and(
+          eq(schema.venueMembers.venueId, venueId), eq(schema.venueMembers.userId, access.user.id),
+          eq(schema.venueMembers.role, "owner"), eq(schema.venueMembers.status, "active"),
+        )).for("update").limit(1);
+        if (!membership) return { kind: "forbidden" as const };
+        const [table] = await tx.update(schema.venueTables).set({ isEnabled: parsed.data.enabled }).where(and(
+          eq(schema.venueTables.id, tableId), eq(schema.venueTables.venueId, venueId),
+        )).returning({ id: schema.venueTables.id, name: schema.venueTables.name, isEnabled: schema.venueTables.isEnabled });
+        return table ? { kind: "updated" as const, table } : { kind: "not_found" as const };
+      });
+      if (result.kind === "forbidden") return merchantJson(403, { error: "venue_access_denied" });
+      if (result.kind === "not_found") return merchantJson(404, { error: "table_not_found" });
+      return merchantJson(200, { table: result.table });
     } catch {
       return merchantJson(503, { error: "merchant_service_unavailable" });
     }
@@ -362,15 +419,26 @@ export function createMerchantOperationsHandlers(db: MerchantAuthDb, auth: Merch
       if (!writeOriginAllowed(request, publicOrigin)) return merchantJson(403, { error: "same_origin_required" });
       const access = await ownerAccess(request, venueId);
       if (access.kind !== "allowed") return merchantJson(accessStatus(access.kind), { error: access.kind === "unauthenticated" ? "authentication_required" : "venue_access_denied" });
+      const limited = await writeRateLimit(request, access.user.id, "table-rotate");
+      if (limited) return limited;
       const parsed = z.object({ confirm: z.literal(true) }).strict().safeParse(await readJson(request));
       if (!parsed.success) return merchantJson(400, { error: "rotation_confirmation_required" });
       const code = createCode();
       if (!/^[A-Za-z0-9_-]{43}$/.test(code)) return merchantJson(503, { error: "merchant_service_unavailable" });
-      const [table] = await db.update(schema.venueTables).set({ publicCodeHash: hashToken(code) }).where(and(
-        eq(schema.venueTables.id, tableId), eq(schema.venueTables.venueId, venueId),
-      )).returning({ id: schema.venueTables.id, venueId: schema.venueTables.venueId, name: schema.venueTables.name, isEnabled: schema.venueTables.isEnabled });
-      if (!table) return merchantJson(404, { error: "table_not_found" });
-      return merchantJson(200, { table, tableCode: code, printUrl: new URL(`/t/${code}`, publicOrigin).toString() });
+      const result = await db.transaction(async (tx) => {
+        const [membership] = await tx.select({ id: schema.venueMembers.id }).from(schema.venueMembers).where(and(
+          eq(schema.venueMembers.venueId, venueId), eq(schema.venueMembers.userId, access.user.id),
+          eq(schema.venueMembers.role, "owner"), eq(schema.venueMembers.status, "active"),
+        )).for("update").limit(1);
+        if (!membership) return { kind: "forbidden" as const };
+        const [table] = await tx.update(schema.venueTables).set({ publicCodeHash: hashToken(code) }).where(and(
+          eq(schema.venueTables.id, tableId), eq(schema.venueTables.venueId, venueId),
+        )).returning({ id: schema.venueTables.id, venueId: schema.venueTables.venueId, name: schema.venueTables.name, isEnabled: schema.venueTables.isEnabled });
+        return table ? { kind: "updated" as const, table } : { kind: "not_found" as const };
+      });
+      if (result.kind === "forbidden") return merchantJson(403, { error: "venue_access_denied" });
+      if (result.kind === "not_found") return merchantJson(404, { error: "table_not_found" });
+      return merchantJson(200, { table: result.table, tableCode: code, printUrl: new URL(`/t/${code}`, publicOrigin).toString() });
     } catch {
       return merchantJson(503, { error: "merchant_service_unavailable" });
     }

@@ -4,31 +4,19 @@ import { getDb } from "../db";
 import * as schema from "../db/schema";
 import type { DomainDb } from "./db-scoped";
 import { hashToken } from "./tokens";
+import { consumeRequestLimit, pruneExpiredRequestLimits, requestLimitIdentity } from "./request-limiter";
+import { isTrustedSameOrigin } from "./request-origin";
 
-type Options = { databaseProvider?: () => DomainDb };
+type Options = { databaseProvider?: () => DomainDb; trustedOrigin?: string };
 const SOLO_COOKIE = "moonlight_attempt";
 const DUO_COOKIE = "moonlight_group_attempt";
 const TOKEN = /^[A-Za-z0-9_-]{43}$/;
 
 function headers() {
-  return new Headers({ "Cache-Control": "private, no-store", "Content-Type": "application/json; charset=utf-8", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer", "X-Robots-Tag": "noindex, nofollow, noarchive" });
+  return new Headers({ "Cache-Control": "private, no-store", "Content-Type": "application/json; charset=utf-8", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer", "X-Robots-Tag": "noindex, nofollow, noarchive", Vary: "Cookie" });
 }
 
 function json(status: number, body: unknown) { return Response.json(body, { status, headers: headers() }); }
-
-function sameOrigin(request: Request) {
-  const origin = request.headers.get("origin");
-  const host = request.headers.get("host");
-  if (!origin || !host) return false;
-  try {
-    const url = new URL(request.url);
-    const forwarded = request.headers.get("x-forwarded-proto")?.split(",", 1)[0]?.trim();
-    const protocol = forwarded === "http" || forwarded === "https" ? `${forwarded}:` : url.protocol;
-    if (new URL(origin).origin !== new URL(`${protocol}//${host}`).origin) return false;
-  } catch { return false; }
-  const fetchSite = request.headers.get("sec-fetch-site");
-  return fetchSite === null || fetchSite === "same-origin";
-}
 
 function cookie(request: Request, name: string): string | null {
   const values = (request.headers.get("cookie") ?? "").split(";").map((part) => part.trim()).filter((part) => part.startsWith(`${name}=`));
@@ -62,9 +50,9 @@ async function ratingBody(request: Request): Promise<number | null> {
   return typeof rating === "number" && Number.isInteger(rating) && rating >= 1 && rating <= 5 ? rating : null;
 }
 
-export function createFeedbackApiHandlers({ databaseProvider = getDb as () => DomainDb }: Options = {}) {
+export function createFeedbackApiHandlers({ databaseProvider = getDb as () => DomainDb, trustedOrigin }: Options = {}) {
   async function handle(request: Request, mode: "solo" | "duo", method: "GET" | "POST"): Promise<Response> {
-    if (method === "POST" && !sameOrigin(request)) return json(403, { error: "same_origin_required" });
+    if (method === "POST" && !isTrustedSameOrigin(request, trustedOrigin)) return json(403, { error: "same_origin_required" });
     const participantToken = cookie(request, mode === "solo" ? SOLO_COOKIE : DUO_COOKIE);
     if (!participantToken) return json(401, { error: "session_unavailable" });
     let rating: number | null = null;
@@ -74,9 +62,22 @@ export function createFeedbackApiHandlers({ databaseProvider = getDb as () => Do
     let db: DomainDb;
     try { db = databaseProvider(); } catch { return json(503, { error: "service_unavailable" }); }
     try {
-      const [attempt] = await db.select({ id: schema.attempts.id, status: schema.attempts.status, mode: schema.attempts.mode })
-        .from(schema.attempts).where(eq(schema.attempts.sessionTokenHash, hashToken(participantToken))).limit(1);
+      const operation = `${mode}-feedback-${method.toLowerCase()}`;
+      const identity = requestLimitIdentity(request, participantToken);
+      const maximum = method === "POST" ? (identity.startsWith("ip:") ? 120 : 10) : 600;
+      const limited = await consumeRequestLimit(db, { operation, identity, maximum, windowMs: 60_000 });
+      await pruneExpiredRequestLimits(db);
+      if (!limited.allowed) {
+        const response = json(429, { error: "rate_limited" });
+        response.headers.set("Retry-After", String(limited.retryAfterSeconds));
+        return response;
+      }
+      const [attempt] = await db.select({ id: schema.attempts.id, status: schema.attempts.status, mode: schema.attempts.mode, venueStatus: schema.venues.status })
+        .from(schema.attempts).innerJoin(schema.publications, eq(schema.publications.id, schema.attempts.publicationId))
+        .innerJoin(schema.venues, eq(schema.venues.id, schema.publications.venueId))
+        .where(eq(schema.attempts.sessionTokenHash, hashToken(participantToken))).limit(1);
       if (!attempt || attempt.mode !== mode) return json(401, { error: "session_unavailable" });
+      if (attempt.venueStatus !== "active") return json(409, { error: "activity_unavailable" });
       if (attempt.status !== "completed") return json(409, { error: "attempt_not_completed" });
       const [existing] = await db.select({ rating: schema.feedback.rating }).from(schema.feedback).where(eq(schema.feedback.attemptId, attempt.id)).limit(1);
       if (method === "GET") return json(200, { rating: existing?.rating ?? null });

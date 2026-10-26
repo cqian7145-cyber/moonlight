@@ -4,6 +4,8 @@ import { getAttemptProgress, getDuoQuestions, submitAnswer } from "./attempts";
 import { getCustomerTableContext, isValidPublicTableCode } from "./customer-entry";
 import { DomainDb } from "./db-scoped";
 import { DomainError } from "./errors";
+import { consumeRequestLimit, pruneExpiredRequestLimits, requestLimitIdentity } from "./request-limiter";
+import { isTrustedSameOrigin } from "./request-origin";
 import {
   createPlayGroup, getPlayGroupInvitation, getPlayGroupResult, getPlayGroupScope,
   getPlayGroupState, joinPlayGroup, leavePlayGroup,
@@ -15,27 +17,11 @@ const DEFAULT_COOKIE_MAX_AGE = 15 * 60;
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const MAX_BODY_BYTES = 2048;
 
-type Options = { databaseProvider?: () => DomainDb };
+type Options = { databaseProvider?: () => DomainDb; trustedOrigin?: string };
 type Cookie = { kind: "absent" } | { kind: "invalid" } | { kind: "valid"; token: string };
 
 function secureRequest(request: Request) {
   return process.env.NODE_ENV === "production" || new URL(request.url).protocol === "https:";
-}
-
-function isSameOrigin(request: Request) {
-  const origin = request.headers.get("origin");
-  const host = request.headers.get("host");
-  if (!origin || !host) return false;
-  try {
-    const url = new URL(request.url);
-    const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",", 1)[0]?.trim();
-    const protocol = forwardedProto === "http" || forwardedProto === "https" ? `${forwardedProto}:` : url.protocol;
-    if (new URL(origin).origin !== new URL(`${protocol}//${host}`).origin) return false;
-  } catch {
-    return false;
-  }
-  const fetchSite = request.headers.get("sec-fetch-site");
-  return fetchSite === null || fetchSite === "same-origin";
 }
 
 function headers() {
@@ -45,6 +31,7 @@ function headers() {
     "X-Content-Type-Options": "nosniff",
     "X-Robots-Tag": "noindex, nofollow, noarchive",
     "Referrer-Policy": "no-referrer",
+    Vary: "Cookie",
   });
 }
 
@@ -134,9 +121,18 @@ function questionsProjection(data: Awaited<ReturnType<typeof getDuoQuestions>>) 
 export function createPlayGroupApiHandlers(options: Options = {}) {
   const databaseProvider = options.databaseProvider ?? getDb;
 
+  async function rateLimit(request: Request, db: DomainDb, operation: string, identity: string, maximum: number) {
+    const result = await consumeRequestLimit(db, { operation, identity: requestLimitIdentity(request, identity), maximum, windowMs: 60_000 });
+    await pruneExpiredRequestLimits(db);
+    if (result.allowed) return null;
+    const response = json(429, { error: "rate_limited" });
+    response.headers.set("Retry-After", String(result.retryAfterSeconds));
+    return response;
+  }
+
   async function create(request: Request) {
     const secure = secureRequest(request);
-    if (!isSameOrigin(request)) return json(403, { error: "same_origin_required" });
+    if (!isTrustedSameOrigin(request, options.trustedOrigin)) return json(403, { error: "same_origin_required" });
     const cookie = readCookie(request);
     if (cookie.kind === "invalid") return json(401, { error: "session_unavailable" }, { secure });
     let body: Record<string, unknown> | null;
@@ -146,6 +142,8 @@ export function createPlayGroupApiHandlers(options: Options = {}) {
     let db: DomainDb;
     try { db = databaseProvider(); } catch { return json(503, { error: "service_unavailable" }); }
     try {
+      const limited = await rateLimit(request, db, "duo-create", cookie.kind === "valid" ? cookie.token : String(body.tableCode), 120);
+      if (limited) return limited;
       const table = await getCustomerTableContext(db, body.tableCode);
       if (table.status === "not_found") return json(404, { error: "table_not_found" });
       if (table.status !== "ready") return json(409, { error: "table_unavailable" });
@@ -178,7 +176,7 @@ export function createPlayGroupApiHandlers(options: Options = {}) {
 
   async function preview(request: Request) {
     const secure = secureRequest(request);
-    if (!isSameOrigin(request)) return json(403, { error: "same_origin_required" });
+    if (!isTrustedSameOrigin(request, options.trustedOrigin)) return json(403, { error: "same_origin_required" });
     let body: Record<string, unknown> | null;
     try { body = await readJson(request); } catch { return json(400, { error: "invalid_request" }); }
     if (!body || Object.keys(body).length !== 1 || !invitationInput(body.invitationToken)) return json(400, { error: "invalid_request" });
@@ -186,6 +184,8 @@ export function createPlayGroupApiHandlers(options: Options = {}) {
     let db: DomainDb;
     try { db = databaseProvider(); } catch { return json(503, { error: "service_unavailable" }); }
     try {
+      const limited = await rateLimit(request, db, "duo-invite-preview", invitationToken, 300);
+      if (limited) return limited;
       const invitation = await getPlayGroupInvitation(db, { invitationToken });
       return json(200, invitation);
     } catch (error) {
@@ -196,7 +196,7 @@ export function createPlayGroupApiHandlers(options: Options = {}) {
 
   async function join(request: Request) {
     const secure = secureRequest(request);
-    if (!isSameOrigin(request)) return json(403, { error: "same_origin_required" });
+    if (!isTrustedSameOrigin(request, options.trustedOrigin)) return json(403, { error: "same_origin_required" });
     const cookie = readCookie(request);
     if (cookie.kind === "invalid") return json(401, { error: "session_unavailable" }, { secure });
     let body: Record<string, unknown> | null;
@@ -207,6 +207,8 @@ export function createPlayGroupApiHandlers(options: Options = {}) {
     let db: DomainDb;
     try { db = databaseProvider(); } catch { return json(503, { error: "service_unavailable" }); }
     try {
+      const limited = await rateLimit(request, db, "duo-join", cookie.kind === "valid" ? cookie.token : invitationToken, 120);
+      if (limited) return limited;
       const joined = await joinPlayGroup(db, {
         invitationToken,
         ...(cookie.kind === "valid" ? { participantToken: cookie.token } : {}),
@@ -230,6 +232,8 @@ export function createPlayGroupApiHandlers(options: Options = {}) {
     let db: DomainDb;
     try { db = databaseProvider(); } catch { return json(503, { error: "service_unavailable" }); }
     try {
+      const limited = await rateLimit(request, db, "duo-current", cookie.token, 600);
+      if (limited) return limited;
       const state = await getPlayGroupState(db, { participantToken: cookie.token });
       if (state.status === "expired" || state.status === "abandoned") return json(409, { error: "group_closed" }, { secure });
       return json(200, {
@@ -250,6 +254,8 @@ export function createPlayGroupApiHandlers(options: Options = {}) {
     let db: DomainDb;
     try { db = databaseProvider(); } catch { return json(503, { error: "service_unavailable" }); }
     try {
+      const limited = await rateLimit(request, db, "duo-questions", cookie.token, 600);
+      if (limited) return limited;
       const data = await getDuoQuestions(db, { participantToken: cookie.token });
       if (data.status === "abandoned") return json(409, { error: "attempt_closed" });
       return json(200, { status: data.status, ...questionsProjection(data) });
@@ -260,7 +266,7 @@ export function createPlayGroupApiHandlers(options: Options = {}) {
 
   async function answer(request: Request) {
     const secure = secureRequest(request);
-    if (!isSameOrigin(request)) return json(403, { error: "same_origin_required" });
+    if (!isTrustedSameOrigin(request, options.trustedOrigin)) return json(403, { error: "same_origin_required" });
     const cookie = readCookie(request);
     if (cookie.kind === "absent") return json(401, { error: "session_required" });
     if (cookie.kind === "invalid") return json(401, { error: "session_unavailable" }, { secure });
@@ -271,6 +277,8 @@ export function createPlayGroupApiHandlers(options: Options = {}) {
     let db: DomainDb;
     try { db = databaseProvider(); } catch { return json(503, { error: "service_unavailable" }); }
     try {
+      const limited = await rateLimit(request, db, "duo-answer", cookie.token, 120);
+      if (limited) return limited;
       const owned = await getDuoQuestions(db, { participantToken: cookie.token });
       const previous = owned.submissions.find((submission) => submission.cueKey === body.cueKey);
       if (owned.status === "completed") {
@@ -298,6 +306,8 @@ export function createPlayGroupApiHandlers(options: Options = {}) {
     let db: DomainDb;
     try { db = databaseProvider(); } catch { return json(503, { error: "service_unavailable" }); }
     try {
+      const limited = await rateLimit(request, db, "duo-result", cookie.token, 600);
+      if (limited) return limited;
       const data = await getPlayGroupResult(db, { participantToken: cookie.token });
       const questions = await getDuoQuestions(db, { participantToken: cookie.token });
       const details = questions.questions.map((question, index) => ({
@@ -314,13 +324,15 @@ export function createPlayGroupApiHandlers(options: Options = {}) {
 
   async function leave(request: Request) {
     const secure = secureRequest(request);
-    if (!isSameOrigin(request)) return json(403, { error: "same_origin_required" });
+    if (!isTrustedSameOrigin(request, options.trustedOrigin)) return json(403, { error: "same_origin_required" });
     const cookie = readCookie(request);
     if (cookie.kind === "absent") return json(401, { error: "session_required" });
     if (cookie.kind === "invalid") return json(401, { error: "session_unavailable" }, { secure });
     let db: DomainDb;
     try { db = databaseProvider(); } catch { return json(503, { error: "service_unavailable" }); }
     try {
+      const limited = await rateLimit(request, db, "duo-leave", cookie.token, 60);
+      if (limited) return limited;
       await leavePlayGroup(db, { participantToken: cookie.token });
       return json(200, { status: "left" }, { secure });
     } catch (error) {

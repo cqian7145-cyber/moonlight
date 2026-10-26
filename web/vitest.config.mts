@@ -8,5 +8,8 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["src/**/*.test.ts"],
+    // PGlite applies all checked-in migrations in many integration-test hooks.
+    // Under parallel Windows workers, 10s is too short for cold startup.
+    hookTimeout: 30_000,
   },
 });

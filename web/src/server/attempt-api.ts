@@ -3,7 +3,9 @@ import { getDb } from "../db";
 import { getAttemptProgress, getSoloQuestions, getSoloResult, startSoloAttempt, submitAnswer } from "./attempts";
 import { getCustomerTableContext, isValidPublicTableCode } from "./customer-entry";
 import { DomainDb } from "./db-scoped";
-import { DomainError } from "./errors";
+import { DomainError, fail } from "./errors";
+import { consumeRequestLimit, pruneExpiredRequestLimits, requestLimitIdentity } from "./request-limiter";
+import { isTrustedSameOrigin } from "./request-origin";
 
 const COOKIE_NAME = "moonlight_attempt";
 const COOKIE_PATH = "/api/attempts";
@@ -11,7 +13,7 @@ const COOKIE_MAX_AGE = 60 * 60 * 24 * 30;
 const BODY_LIMIT_BYTES = 1024;
 const PARTICIPANT_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 
-type AttemptApiOptions = { databaseProvider?: () => DomainDb };
+type AttemptApiOptions = { databaseProvider?: () => DomainDb; trustedOrigin?: string };
 type CookieValue = { kind: "absent" } | { kind: "invalid" } | { kind: "valid"; token: string };
 type AnswerInput = { tableCode: string; cueKey: string; optionIndex: number };
 
@@ -23,6 +25,9 @@ function responseHeaders(): Headers {
   return new Headers({
     "Cache-Control": "private, no-store",
     "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+    "X-Robots-Tag": "noindex, nofollow, noarchive",
+    Vary: "Cookie",
   });
 }
 
@@ -46,23 +51,6 @@ function readCookie(request: Request): CookieValue {
   if (matches.length !== 1) return { kind: "invalid" };
   const token = matches[0]!.slice(COOKIE_NAME.length + 1);
   return PARTICIPANT_TOKEN_PATTERN.test(token) ? { kind: "valid", token } : { kind: "invalid" };
-}
-
-function isSameOrigin(request: Request): boolean {
-  const origin = request.headers.get("origin");
-  if (!origin) return false;
-  try {
-    const requestUrl = new URL(request.url);
-    const host = request.headers.get("host");
-    if (!host) return false;
-    const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",", 1)[0]?.trim();
-    const protocol = forwardedProto === "http" || forwardedProto === "https" ? `${forwardedProto}:` : requestUrl.protocol;
-    if (new URL(origin).origin !== new URL(`${protocol}//${host}`).origin) return false;
-  } catch {
-    return false;
-  }
-  const fetchSite = request.headers.get("sec-fetch-site");
-  return fetchSite === null || fetchSite === "same-origin";
 }
 
 async function readTableCode(request: Request): Promise<string | null> {
@@ -174,6 +162,13 @@ function mapTableStatus(status: string): Response | null {
   return null;
 }
 
+async function soloAttemptVenueScope(db: DomainDb, tableCode: string): Promise<string | undefined> {
+  const context = await getCustomerTableContext(db, tableCode);
+  if (context.status === "not_found") return undefined;
+  if (context.status !== "ready") fail("ACTIVITY_UNAVAILABLE");
+  return context.venueId;
+}
+
 function isDomainError(error: unknown, code: string): boolean {
   return error instanceof DomainError && error.code === code;
 }
@@ -181,9 +176,18 @@ function isDomainError(error: unknown, code: string): boolean {
 export function createAttemptApiHandlers(options: AttemptApiOptions = {}) {
   const databaseProvider = options.databaseProvider ?? getDb;
 
+  async function rateLimit(request: Request, db: DomainDb, operation: string, identity: string, maximum: number) {
+    const result = await consumeRequestLimit(db, { operation, identity: requestLimitIdentity(request, identity), maximum, windowMs: 60_000 });
+    await pruneExpiredRequestLimits(db);
+    if (result.allowed) return null;
+    const response = json(429, { error: "rate_limited" });
+    response.headers.set("Retry-After", String(result.retryAfterSeconds));
+    return response;
+  }
+
   async function start(request: Request): Promise<Response> {
     const secure = secureRequest(request);
-    if (!isSameOrigin(request)) return json(403, { error: "same_origin_required" });
+    if (!isTrustedSameOrigin(request, options.trustedOrigin)) return json(403, { error: "same_origin_required" });
 
     const cookie = readCookie(request);
     if (cookie.kind === "invalid") return json(401, { error: "session_unavailable" }, { secure });
@@ -208,6 +212,8 @@ export function createAttemptApiHandlers(options: AttemptApiOptions = {}) {
     }
 
     try {
+      const limited = await rateLimit(request, db, "solo-start", cookie.kind === "valid" ? cookie.token : tableCode, 120);
+      if (limited) return limited;
       const context = await getCustomerTableContext(db, tableCode);
       const unavailable = mapTableStatus(context.status);
       if (unavailable) return unavailable;
@@ -255,12 +261,10 @@ export function createAttemptApiHandlers(options: AttemptApiOptions = {}) {
     }
 
     try {
-      const context = await getCustomerTableContext(db, codes[0]!);
-      const unavailable = mapTableStatus(context.status);
-      if (unavailable) return unavailable;
-      if (context.status !== "ready") return json(404, { error: "table_not_found" });
-
-      const progress = await getAttemptProgress(db, { participantToken: cookie.token, venueId: context.venueId });
+      const limited = await rateLimit(request, db, "solo-current", cookie.token, 600);
+      if (limited) return limited;
+      const venueId = await soloAttemptVenueScope(db, codes[0]!);
+      const progress = await getAttemptProgress(db, { participantToken: cookie.token, ...(venueId ? { venueId } : {}) });
       if (progress.mode !== "solo") return json(401, { error: "session_unavailable" }, { secure });
       return json(200, {
         status: "current",
@@ -274,6 +278,7 @@ export function createAttemptApiHandlers(options: AttemptApiOptions = {}) {
       });
     } catch (error) {
       if (isDomainError(error, "NOT_FOUND")) return json(401, { error: "session_unavailable" }, { secure });
+      if (isDomainError(error, "ACTIVITY_UNAVAILABLE")) return json(409, { error: "activity_unavailable" });
       return json(503, { error: "service_unavailable" });
     }
   }
@@ -294,11 +299,10 @@ export function createAttemptApiHandlers(options: AttemptApiOptions = {}) {
     }
 
     try {
-      const context = await getCustomerTableContext(db, tableCode);
-      const unavailable = mapTableStatus(context.status);
-      if (unavailable) return unavailable;
-      if (context.status !== "ready") return json(404, { error: "table_not_found" });
-      const data = await getSoloQuestions(db, { participantToken: cookie.token, venueId: context.venueId });
+      const limited = await rateLimit(request, db, "solo-questions", cookie.token, 600);
+      if (limited) return limited;
+      const venueId = await soloAttemptVenueScope(db, tableCode);
+      const data = await getSoloQuestions(db, { participantToken: cookie.token, ...(venueId ? { venueId } : {}) });
       if (data.status === "abandoned") return json(409, { error: "attempt_closed" });
       return json(200, { status: data.status === "completed" ? "completed" : "in_progress", ...safeQuestions(data) });
     } catch (error) {
@@ -310,7 +314,7 @@ export function createAttemptApiHandlers(options: AttemptApiOptions = {}) {
 
   async function answer(request: Request): Promise<Response> {
     const secure = secureRequest(request);
-    if (!isSameOrigin(request)) return json(403, { error: "same_origin_required" });
+    if (!isTrustedSameOrigin(request, options.trustedOrigin)) return json(403, { error: "same_origin_required" });
     const cookie = readCookie(request);
     if (cookie.kind === "absent") return json(401, { error: "session_required" });
     if (cookie.kind === "invalid") return json(401, { error: "session_unavailable" }, { secure });
@@ -333,11 +337,10 @@ export function createAttemptApiHandlers(options: AttemptApiOptions = {}) {
     }
 
     try {
-      const context = await getCustomerTableContext(db, input.tableCode);
-      const unavailable = mapTableStatus(context.status);
-      if (unavailable) return unavailable;
-      if (context.status !== "ready") return json(404, { error: "table_not_found" });
-      const owned = await getSoloQuestions(db, { participantToken: cookie.token, venueId: context.venueId });
+      const limited = await rateLimit(request, db, "solo-answer", cookie.token, 120);
+      if (limited) return limited;
+      const venueId = await soloAttemptVenueScope(db, input.tableCode);
+      const owned = await getSoloQuestions(db, { participantToken: cookie.token, ...(venueId ? { venueId } : {}) });
       if (owned.status !== "in_progress") {
         const question = owned.questions.find((item) => item.cueKey === input.cueKey);
         if (!question || input.optionIndex >= question.choices.length) return json(400, { error: "invalid_answer" });
@@ -351,7 +354,7 @@ export function createAttemptApiHandlers(options: AttemptApiOptions = {}) {
       const submitted = await submitAnswer(db, {
         participantToken: cookie.token, cueKey: input.cueKey, optionIndex: input.optionIndex,
       });
-      const updated = await getSoloQuestions(db, { participantToken: cookie.token, venueId: context.venueId });
+      const updated = await getSoloQuestions(db, { participantToken: cookie.token, ...(venueId ? { venueId } : {}) });
       return json(submitted.outcome === "duplicate" || updated.status === "completed" ? 200 : 201, {
         outcome: submitted.outcome,
         attempt: { status: updated.status, answeredCount: updated.submissions.length },
@@ -378,11 +381,10 @@ export function createAttemptApiHandlers(options: AttemptApiOptions = {}) {
     }
 
     try {
-      const context = await getCustomerTableContext(db, tableCode);
-      const unavailable = mapTableStatus(context.status);
-      if (unavailable) return unavailable;
-      if (context.status !== "ready") return json(404, { error: "table_not_found" });
-      const progress = await getAttemptProgress(db, { participantToken: cookie.token, venueId: context.venueId });
+      const limited = await rateLimit(request, db, "solo-result", cookie.token, 600);
+      if (limited) return limited;
+      const venueId = await soloAttemptVenueScope(db, tableCode);
+      const progress = await getAttemptProgress(db, { participantToken: cookie.token, ...(venueId ? { venueId } : {}) });
       if (progress.mode !== "solo") return json(401, { error: "session_unavailable" }, { secure });
       const completed = await getSoloResult(db, { participantToken: cookie.token });
       return json(200, { status: "completed", result: completed.result });

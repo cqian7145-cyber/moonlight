@@ -32,7 +32,7 @@ npm run dev
 - `/play/together/<tableCode>` 从有效桌码发起两人挑战；房主分享 `/join#invite=<secret>` 邀请链接，受邀者在确认门店与玩法并主动同意后加入。双方使用 `/api/play-groups` 下独立的 HttpOnly 会话、读取同一绑定题包、各自提交三题；仅双方完成后才可读取共同结果。房间最多两人，邀请约 15 分钟失效。
 - 双人 API：`POST /api/play-groups` 创建；`POST /api/play-groups/invitation` 只读预览邀请；`POST /api/play-groups/join` 加入；`GET /api/play-groups/current`、`questions`、`result` 读取本人状态/题目/揭晓；`POST /api/play-groups/answer` 与 `leave` 提交答案和退出。个人 Cookie `moonlight_attempt` 保持 `/api/attempts` 路径；双人 Cookie `moonlight_group_attempt` 限于 `/api/play-groups`，两者不能互相授权。
 - `/play/demo` 仍提供三道独立的本地演示题和确定性趣味结果，不读写数据库。
-- `/login` 是受控开通账号的商家登录页；公众注册关闭。`/staff` 只列出当前登录者有权访问的门店并提供活动/桌位只读概要；`/admin` 限 owner 使用。M-011 已提供题包编辑、活动上架和桌码管理；M-012 报表仍未开发。
+- `/login` 是受控开通账号的商家登录页；公众注册关闭。`/staff` 仅提供授权门店只读访问；`/admin` 限 owner 使用。M-011 提供题包编辑、活动上架和桌码管理；M-012 提供真实 SQL 经营汇总及自愿评分。
 - 商家认证使用 Better Auth 1.7.12 与 Drizzle PostgreSQL adapter，登录 Cookie 与顾客个人/双人 Cookie 相互独立。`venue_members` 对每个门店/用户组合保存 owner/staff 角色及 active/disabled 状态；页面和 `/api/merchant/venues` 每次请求都从服务器会话及数据库 membership 校验权限。
 - 商家测试账户可通过仅本地运行的 `web/scripts/provision-merchant-local.ts` 受控创建；该工具只接受 `127.0.0.1`/loopback 的 `moonlight_dev`（55432）数据库、要求交互输入密码和显式确认，生产环境及公开 HTTP 注册端点不可建号。开发者自行设置未跟踪的 `BETTER_AUTH_SECRET`（至少 32 字符）和 `BETTER_AUTH_URL`；部署需 HTTPS 和独立管理密钥。
 - `/api/health` 提供不依赖数据库的健康检查。
@@ -40,6 +40,12 @@ npm run dev
 - 个人 Cookie 名为 `moonlight_attempt`，HttpOnly、SameSite=Lax、Path=`/api/attempts`、30 天有效。双人 Cookie 名为 `moonlight_group_attempt`，HttpOnly、SameSite=Lax、Path=`/api/play-groups`，与房间 15 分钟有效期一致。生产响应设 Secure（生产部署应使用 HTTPS），开发模式的本地 HTTP 不设 Secure。写请求要求 Origin 与入站 Host/协议同源，缺少 Origin 时拒绝。
 - `web/drizzle/` 保存迁移。可运行 `npm run test:db` 验证迁移和 PostgreSQL 约束，无需配置数据库。
 - `npm run db:migrate:local` 仅接受 loopback PostgreSQL URL；它不会启动数据库。没有生产迁移命令。
+
+### M-013 安全边界
+
+- 个人、双人和商家凭证相互独立；商家角色、账号状态和门店成员关系每次由服务端复核。公开写接口要求配置 origin 同源，并使用 PostgreSQL 原子计数限流；限流键不保存原始 IP 或匿名 token。
+- `venues.status = suspended` 可阻止该门店的新参与及现有参与的敏感读写；正常活动下架仍保留已开始参与的冻结版本。轮换桌码阻止旧码创建新参与，不撤销进行中的个人/双人会话。
+- M-013R2 已校准本地可信 Origin，并完成真实 Chrome＋D 盘 PostgreSQL 全链路安全回归及质量门禁。公网发布仍受依赖审计、TLS/可信代理 IP、可审计紧急停用和隐私保留政策等条件限制。具体证据见 [安全审查](docs/SECURITY_REVIEW.md)、[测试矩阵](docs/TEST_MATRIX.md) 和 [发布阻断](docs/RELEASE_BLOCKERS.md)。
 
 ### D 盘隔离 PostgreSQL 验收
 
@@ -62,7 +68,7 @@ seed 只插入固定 ID 的虚构 Venue、桌位、题包、不可变版本和�
 
 ## 尚未实现
 
-M-012 报表、AI、微信小程序、支付和上线均未实现。双人流程是桌码＋短期邀请链接的轻量轮询体验，不包含陌生人匹配、聊天、跨桌社交、WebSocket 或可证明同桌的身份/位置校验。正式桌码及个人/双人答题流程需要已配置的 PostgreSQL `DATABASE_URL`；没有数据库时页面与 API 安全地显示/返回暂不可用，不会生成演示门店或伪造参与记录。数据库 schema 和本地 PGlite 测试不代表已有可部署的生产后端。商家账号创建、HTTPS 反向代理及生产密钥轮换仍需部署前由受控运营流程配置。
+AI、微信小程序、支付和部署尚未实现。双人流程是桌码＋短期邀请链接的轻量轮询体验，不包含陌生人匹配、聊天、跨桌社交、WebSocket 或可证明同桌的身份/位置校验。正式桌码及个人/双人答题流程需要已配置的 PostgreSQL `DATABASE_URL`；没有数据库时页面与 API 安全地显示/返回暂不可用，不会生成演示门店或伪造参与记录。M-013R2 已完成本地 Chrome＋PostgreSQL 安全回归；公网发布仍受 [发布阻断项](docs/RELEASE_BLOCKERS.md) 中 P0/P1 条件限制。
 
 ## 目录
 

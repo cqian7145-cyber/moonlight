@@ -106,3 +106,22 @@
 - 替换当前活动时事务先锁定门店行，再核对 `expectedCurrentPublicationId`，停用旧 publication 并创建新版本/active publication；既有唯一索引继续保证每店最多一个 active。并发旧请求得到 409 并提示刷新。
 - 普通下架阻止新 Attempt 取得当前活动；已开始的个人或双人 Attempt 继续按绑定的旧 Publication/版本读题并提交。普通下架不保证立即撤回进行中的内容；紧急撤回仍需另行设计可审计的停止机制。
 - 桌码明文只在成功新建或确认轮换的无缓存响应中返回一次，数据库仅存 SHA-256 哈希。已存在的旧码不会再次显示；轮换后旧码不能创建新参与，现有 Attempt 仍按原绑定版本继续。QR 使用 MIT 许可的 `qrcode` 生成，URL 来源于配置的 `MOONLIGHT_PUBLIC_ORIGIN`（本地缺省复用 `BETTER_AUTH_URL`），不使用请求 Host 拼接公开链接。
+
+## M-013 安全加固与全链路回归
+
+- 顾客与商家写请求以配置的 `MOONLIGHT_PUBLIC_ORIGIN`/`BETTER_AUTH_URL` 为可信 origin；严格比对 `Origin`、入站 `Host` 与 `Request.url` 协议，拒绝跨站 Fetch Metadata，不采信任意 `X-Forwarded-*`。正式反代须保证传到 Next.js 的 URL 协议/host 与配置一致；代理/IP 来源边界留作 M-014 部署验收。
+- 公开 API 使用既有 PostgreSQL `auth_rate_limits` 表实现操作级固定窗口计数：SHA-256 key + UPSERT 原子增量，返回 429 与 Retry-After；Better Auth 仍负责登录失败限流。可信 IP 仅可在已清洗、不可被公网绕过的入口显式配置 `MOONLIGHT_TRUSTED_CLIENT_IP_HEADER`；未配置时限流退回匿名资源/会话，不能抵抗换 token/IP 的来源攻击。
+- 商家草稿和桌码写事务在写入阶段对当前 owner membership 加行锁并复核 active 状态，避免访问检查与写操作间的撤权竞态；发布/普通下架继续锁门店和 membership。读写均按 venue 和具体对象 ID 双重限定。
+- 紧急撤回复用 `venues.status = suspended` 的门店级服务端开关，不改变旧 schema/migrations。active venue 检查覆盖个人/双人题目、答案提交、进度/结果与反馈。正常 publication 下架继续只阻止新参与；轮换桌码使旧码无法开启新参与，但已有匿名 Cookie 仍可继续本次 Attempt。当前 suspend 操作为 DB 运维手动操作，没有带审计 UI。
+- 原答案唯一约束与 Feedback attempt 唯一约束负责同值幂等和异值冲突；真实 PostgreSQL 18.6 独立池测试重跑 M-009 末席竞争、M-011 publication 并发，并新增答案、评分竞争、owner/staff/跨店/撤销 member 与 suspend 测试。所有测试只追加随机虚构数据，不删除旧行。
+- `.playwright-cli/` 精确加入 ignore，减少后续临时日志误提交，但 ignore 不等于秘密已删除。初次处置被本机策略阻止；后由用户通过普通文件管理器清理。M-013R 复核 `.tmp/m012-e2e.json` 不存在且日志目录剩余 0 个文件。凭证账号/session 的停用与撤销、合成邀请哈希轮换依据此前 PostgreSQL 处置记录；没有删除历史业务数据。
+- M-013 未启用新功能/服务或新 schema。上线路径仍需要生产 HTTPS、可信代理和来源限流、密钥/开户流程、紧急停用审计、隐私披露与数据保留规则；依赖 audit 还报告 drizzle-kit/esbuild moderate 链。M-013 本地验证不表示 M-014 ready。
+- M-013R2 于 2026-10-26 最终重跑 lint、typecheck、93/5 默认测试、16 项 PGlite schema 测试、production build，均通过；显式启用 `MOONLIGHT_REAL_PG=1` 后 M-009/M-011/M-013 三个真实 PostgreSQL 文件 5/5 通过。五项默认 skipped 的测试名称与独立证据见 [TEST_MATRIX.md](TEST_MATRIX.md)。
+- 用户按恢复任务在普通文件管理器清理历史 Playwright 输出及 `.tmp/m012-e2e.json`；复核 fixture 不存在且日志目录剩余 0 个文件。之后通过被 Git 忽略的 `web/.env.local` 配置实际可信 Origin，Origin/CSRF/Host 校验保持启用；真实 Chrome 155 + D 盘 PostgreSQL 全链路现已通过，细项见测试矩阵。
+- M-013R 的 `npm audit` 与 `npm audit --omit=dev` 各报 4 项 moderate。`drizzle-kit@0.31.11` 经 Better Auth peer dependency 出现在 production dependency tree，最终落到 `esbuild@0.18.20`；未发现 Better Auth 运行时代码直接导入 CLI/构建工具，利用面未确认。强制 npm 修复会破坏性降级，不自动执行，列为 OPEN P1。
+
+## M-013R2 验收补充
+
+- Chrome 写请求 403 的原因是 `web/.env.local` 中的可信 Origin/Base URL 沿用 `http://localhost:3000`，而 Chrome 与 Next listener 使用 `http://127.0.0.1:3001`。以被 Git 忽略的本机配置统一 `MOONLIGHT_PUBLIC_ORIGIN` 和 `BETTER_AUTH_URL`；备份仅位于 D 盘受 ACL 保护的 `.local/`。不放宽 Origin、Host、CSRF 或代理校验。
+- 本地真实 Chrome 155 + PostgreSQL 18.6 回归已通过；具体覆盖、唯一未完成的浏览器级指标 SQL 逐项对账、自动门禁和生产 Release Blockers 见 `TEST_MATRIX.md`、`SECURITY_REVIEW.md`、`RELEASE_BLOCKERS.md`。这项本地验收不表示公网发布就绪。
+- 桌码轮换的实际语义为旧码拒绝新 Attempt、已有匿名 Cookie 可继续读取已绑定 Attempt。该语义作为产品决策待确认，不把常规轮换称作紧急会话撤销。

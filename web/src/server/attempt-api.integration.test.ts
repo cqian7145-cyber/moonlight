@@ -147,7 +147,7 @@ describe("anonymous solo attempt HTTP handlers backed by the checked-in migratio
   });
 
   it("compares Origin with the incoming Host when Next's internal request URL uses another host", async () => {
-    const unavailable = createAttemptApiHandlers({ databaseProvider: () => { throw new Error("no database"); } });
+    const unavailable = createAttemptApiHandlers({ databaseProvider: () => { throw new Error("no database"); }, trustedOrigin: "http://127.0.0.1:3010" });
     const response = await unavailable.start(new Request("http://localhost:3010/api/attempts/start", {
       method: "POST",
       headers: { origin: "http://127.0.0.1:3010", host: "127.0.0.1:3010", "content-type": "application/json" },
@@ -155,6 +155,19 @@ describe("anonymous solo attempt HTTP handlers backed by the checked-in migratio
     }));
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({ error: "service_unavailable" });
+  });
+
+  it("does not accept a client supplied forwarded protocol as trusted CSRF context", async () => {
+    const trusted = createAttemptApiHandlers({ databaseProvider: () => db, trustedOrigin: baseUrl });
+    const entry = await fixture();
+    const url = `http://moonlight.test/api/attempts/start`;
+    const response = await trusted.start(new Request(url, {
+      method: "POST",
+      headers: { origin: baseUrl, host: "moonlight.test", "x-forwarded-proto": "https", "content-type": "application/json" },
+      body: JSON.stringify({ tableCode: entry.tableCode }),
+    }));
+    expect(response.status).toBe(403);
+    expect(await db.select().from(schema.attempts)).toHaveLength(0);
   });
 
   it("rejects invalid, paused, and inactive entries without creating attempts", async () => {
@@ -353,5 +366,38 @@ describe("anonymous solo attempt HTTP handlers backed by the checked-in migratio
     for (const response of [questionResponse, answerResponse, resultResponse]) {
       expect(await response.text()).toBe('{"error":"service_unavailable"}');
     }
+  });
+
+  it("keeps the owned solo session usable after code rotation while the old code cannot start a new attempt", async () => {
+    const entry = await fixture();
+    const started = await post({ tableCode: entry.tableCode });
+    const cookie = cookieFrom(started);
+    const replacementCode = randomBytes(32).toString("base64url");
+    await db.update(schema.venueTables).set({ publicCodeHash: hashToken(replacementCode) }).where(eq(schema.venueTables.id, entry.table.id));
+
+    expect((await post({ tableCode: entry.tableCode })).status).toBe(404);
+    expect((await getCurrent(entry.tableCode, cookie)).status).toBe(200);
+    expect((await getQuestions(entry.tableCode, cookie)).status).toBe(200);
+    for (const cueKey of ["q1", "q2", "q3"]) {
+      const response = await postAnswer({ tableCode: entry.tableCode, cueKey, optionIndex: 1 }, cookie);
+      expect([200, 201]).toContain(response.status);
+    }
+    expect((await getResult(entry.tableCode, cookie)).status).toBe(200);
+    expect(await db.select().from(schema.attempts)).toHaveLength(1);
+    expect(await db.select().from(schema.submissions)).toHaveLength(3);
+  });
+
+  it("blocks a suspended venue's in-progress reads and answer writes, then resumes without deleting history", async () => {
+    const entry = await fixture();
+    const started = await post({ tableCode: entry.tableCode });
+    const cookie = cookieFrom(started);
+    await db.update(schema.venues).set({ status: "suspended" }).where(eq(schema.venues.id, entry.venue.id));
+    expect((await getCurrent(entry.tableCode, cookie)).status).toBe(409);
+    expect((await getQuestions(entry.tableCode, cookie)).status).toBe(409);
+    expect((await postAnswer({ tableCode: entry.tableCode, cueKey: "q1", optionIndex: 1 }, cookie)).status).toBe(409);
+    expect(await db.select().from(schema.submissions)).toHaveLength(0);
+    await db.update(schema.venues).set({ status: "active" }).where(eq(schema.venues.id, entry.venue.id));
+    expect((await getQuestions(entry.tableCode, cookie)).status).toBe(200);
+    expect(await db.select().from(schema.attempts)).toHaveLength(1);
   });
 });

@@ -62,6 +62,23 @@ describe("M-012 feedback and venue analytics on checked-in migrations", () => {
     expect((await post(3, "moonlight_attempt=forged-token")).status).toBe(401);
   });
 
+  it("serializes concurrent identical ratings and returns 429 instead of accepting abusive retries", async () => {
+    const [venue] = await db.insert(schema.venues).values({ name: "并发评分门店" }).returning();
+    const publication = await publicationFor(venue!.id, 1);
+    const token = randomBytes(32).toString("base64url");
+    const at = new Date();
+    const [attempt] = await db.insert(schema.attempts).values({ publicationId: publication.id, status: "completed", startedAt: new Date(at.getTime() - 1000), completedAt: at, sessionTokenHash: hashToken(token) }).returning();
+    const handlers = createFeedbackApiHandlers({ databaseProvider: () => db as never, trustedOrigin: origin });
+    const submit = () => handlers.soloPost(request("/api/attempts/feedback", "POST", `moonlight_attempt=${token}`, { rating: 4 }));
+    const concurrent = await Promise.all([submit(), submit()]);
+    expect(concurrent.map((response) => response.status).sort()).toEqual([200, 201]);
+    for (let count = 0; count < 8; count += 1) expect((await submit()).status).toBe(200);
+    const blocked = await submit();
+    expect(blocked.status).toBe(429);
+    expect(Number(blocked.headers.get("retry-after"))).toBeGreaterThan(0);
+    expect(await db.select().from(schema.feedback).where(eq(schema.feedback.attemptId, attempt!.id))).toHaveLength(1);
+  });
+
   it("keeps duo ratings private to each participant cookie instead of a shared room", async () => {
     const [venue] = await db.insert(schema.venues).values({ name: "双人反馈门店" }).returning();
     const publication = await publicationFor(venue!.id, 1);

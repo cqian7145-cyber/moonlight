@@ -29,6 +29,7 @@ node_modules/
 coverage/
 /dist/
 /out/
+/.playwright-cli/
 
 # D-drive-only local development tools, database files, and credentials
 /.tools/
