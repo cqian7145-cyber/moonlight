@@ -84,3 +84,16 @@
 - 本地自动化质量：M-009 新增 PGlite＋真实 SQL Migration HTTP handler 覆盖及原个人模式回归。真实 Chrome 使用两个完全隔离 BrowserContext 连到 D 盘 PostgreSQL 18.6；第三上下文重复邀请加入被拒；375/390px 无横向溢出；原个人答题完成且组队 Cookie 未变。D 层并发测试通过两条 `max:1` PostgreSQL 池、不同 `pg_backend_pid` 和测试专用短暂延迟触发器观察真实 Lock wait；测试只追加随机虚构行，不清理历史数据。最终数量与执行记录见本任务验收报告。
 - 风险：邀请可以转发，不能证明同桌；无账号意味着没有跨设备恢复；Cookie/房间会在 15 分钟后过期。当前没有跨实例持久化匿名创建限流，浏览器 Web Locks 只减少同设备重复创建，部署前应评估可靠的速率限制。HTTPS、微信内置浏览器、真实移动网络及生产部署尚未验收。
 - 依赖审计记录：当前 `npm audit` 报 4 项 moderate（重复/传递项）：`drizzle-kit@0.31.11 -> @esbuild-kit/esm-loader@2.6.5 -> @esbuild-kit/core-utils@3.3.2 -> esbuild@0.18.20`，对应 esbuild <=0.24.2 开发服务器 Origin 边界公告 GHSA-67mh-4wv8-2f99；当前直接 `drizzle-kit` esbuild 0.25.12、Vite esbuild 0.28.2 不在该范围。该链属于开发工具链，不作为部署运行时依赖；audit 给出的 `drizzle-kit@0.18.1` 修复建议会跨大版本降级，本任务未执行自动修复或强制升级。
+
+## M-010 商家认证与门店级授权
+
+- 固定使用 Better Auth `1.7.12`（MIT）及其 PostgreSQL Drizzle adapter；实装前按官方 release 与适配器/Next 集成文档核对稳定版本及 peer 范围。该版本声明支持 Next.js 14/15/16、Drizzle ORM 0.45.2+ 与 pg 8；项目当前 Next.js 16.4.3、Drizzle ORM 0.45.4、pg 8.23.1 满足范围。未升级 Next/Drizzle/pg，也未选 beta/RC。实现采用官方 email/password、Route Handler 与 DB 限流能力，不自制密码散列、会话签名或令牌。
+- 新 migration `0001_blushing_sumo.sql` 新增 `auth_users`、`auth_sessions`、`auth_accounts`、`auth_verifications`、`auth_rate_limits` 与 `venue_members` 六张表和 owner/staff、active/disabled 两个枚举；原 M-004 `0000_red_spiral.sql` 与九张玩法表不改写。账号 ID 使用认证库字符串主键，membership 用真实外键关联 `venues` 与认证用户，并保证每用户/门店唯一。
+- 不引入 Better Auth Organization/Teams 插件：`venues` 仍是唯一门店权威数据源，`venue_members` 显式关联它。当前权限只需 owner/staff 两个角色和禁用状态；扩展组织、邀请、多层运营角色需另立 ADR。
+- 公共邮箱密码注册关闭，认证 Route Handler 即使接收直接注册 HTTP 请求也拒绝。唯一创建工具 `scripts/provision-merchant-local.ts` 仅接受显式 `--local-provision`、非 production、loopback `moonlight_dev` 的 55432 端口、交互输入密码及最终人工确认，不在命令行、输出或源码中设置默认密码。外部生产开户仍须另行建立受控运营流程。
+- 会话有效期 12 小时、校验与撤销均由 Better Auth server API/数据库完成；登出删除服务端 session。cookie cache 关闭。商家 session cookie 使用独立 `moonlight_merchant` 前缀、HttpOnly、SameSite=Lax、生产 Secure、Path `/`，不会复用个人 `moonlight_attempt` 或双人 `moonlight_group_attempt`。生产部署需提供至少 32 字符 `BETTER_AUTH_SECRET`、精确 `BETTER_AUTH_URL` 与 HTTPS。
+- `createMerchantAuth` 将 trusted origin 限定为配置 URL origin，关闭不可信 proxy header 信任；写请求沿用 Better Auth origin/CSRF 校验。Better Auth DB rate limiter 的邮箱登录规则为每 60 秒最多 5 次，采用 PostgreSQL 存储；不配可信入口 IP header 时不能假定分布式的用户级限速，正式反向代理接入时需先验证并明确可信代理边界。
+- `venue-auth.ts` 是 `/staff`、`/admin` 与未来商家 API 的权威 DAL。每请求使用数据库 session 重新识别用户、查询启用账户和 active membership，不信任客户端传入 role；当前门店 ID 必须再经 membership 校验。staff 可读其门店最小资料但不可读 owner API；owner 仅管理自己所属门店。空授权、停用 membership、停用账号、无效 session 与数据库异常均不会被当作授权通过。
+- `/login`、`/staff`、`/admin` 和商家 API 禁缓存、no-referrer、noindex；`headers()` 在认证检查前读取，使 Cache Components 在请求时读取授权，阻止静态预渲染配置错误或跨会话私有内容。页面受 Suspense 边界保护，当前版本仍需在任何新的商家页面/API 中复用该 DAL，不以隐藏 UI 代替授权。
+- 验收：真实 PostgreSQL 18.6（D 盘、loopback）重复应用 0001 migration；原九张业务表及 M-009 触发器保留，测试不清理历史虚构记录。PGlite 真实 migration 集成测试覆盖 signup 拒绝、散列存储、通用错误、Cookie 属性、登出撤销、限流、same-origin、角色/跨店/禁用。真实 Google Chrome 三个隔离上下文覆盖 owner、staff、无成员账户，退出和旧 cookie、停用 membership/account、跨店 URL/API、signup HTTP、375/390px 布局与私有响应头。随后运行既有 M-009 Chrome + PostgreSQL 脚本，实际完成双人揭晓与个人三题答题；新增游戏行均为随机虚构验收数据。
+- 未覆盖部署 HTTPS 反向代理、可信客户端 IP 限流、密钥轮换、账户找回与邮箱验证投递、真实商家运营开户、生产监控、多实例/高并发认证压力；在这些验证完成前不宣称生产就绪。未实现题包/桌码/活动 CRUD（M-011）、经营报表（M-012）、AI 或平台管理员。

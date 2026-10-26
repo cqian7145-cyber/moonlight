@@ -1,12 +1,15 @@
 import {
+  bigint,
   boolean,
   check,
   foreignKey,
+  index,
   integer,
   jsonb,
   pgEnum,
   pgTable,
   timestamp,
+  text,
   uniqueIndex,
   unique,
   uuid,
@@ -30,6 +33,63 @@ export const publicationStatus = pgEnum("publication_status", ["active", "inacti
 export const playGroupStatus = pgEnum("play_group_status", ["open", "paired", "expired", "cancelled"]);
 export const attemptMode = pgEnum("attempt_mode", ["solo", "duo"]);
 export const attemptStatus = pgEnum("attempt_status", ["in_progress", "completed", "abandoned"]);
+export const venueMemberRole = pgEnum("venue_member_role", ["owner", "staff"]);
+export const venueMemberStatus = pgEnum("venue_member_status", ["active", "disabled"]);
+
+// Better Auth's standard Drizzle schema, isolated from public gameplay data.
+export const authUsers = pgTable("auth_users", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  email: text("email").notNull().unique(),
+  emailVerified: boolean("email_verified").notNull().default(false),
+  image: text("image"),
+  disabled: boolean("disabled").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+});
+
+export const authSessions = pgTable("auth_sessions", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => authUsers.id, { onDelete: "cascade" }),
+  token: text("token").notNull().unique(),
+  expiresAt: timestamp("expires_at", { withTimezone: true, mode: "date" }).notNull(),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+});
+
+export const authAccounts = pgTable("auth_accounts", {
+  id: text("id").primaryKey(),
+  accountId: text("account_id").notNull(),
+  providerId: text("provider_id").notNull(),
+  userId: text("user_id").notNull().references(() => authUsers.id, { onDelete: "cascade" }),
+  accessToken: text("access_token"),
+  refreshToken: text("refresh_token"),
+  idToken: text("id_token"),
+  accessTokenExpiresAt: timestamp("access_token_expires_at", { withTimezone: true, mode: "date" }),
+  refreshTokenExpiresAt: timestamp("refresh_token_expires_at", { withTimezone: true, mode: "date" }),
+  scope: text("scope"),
+  password: text("password"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+});
+
+export const authVerifications = pgTable("auth_verifications", {
+  id: text("id").primaryKey(),
+  identifier: text("identifier").notNull(),
+  value: text("value").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true, mode: "date" }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+});
+
+export const authRateLimits = pgTable("auth_rate_limits", {
+  id: text("id").primaryKey(),
+  key: text("key").notNull().unique(),
+  count: integer("count").notNull(),
+  lastRequest: bigint("last_request", { mode: "number" }).notNull(),
+});
 
 export const venues = pgTable("venues", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -40,6 +100,18 @@ export const venues = pgTable("venues", {
 }, (table) => [
   check("venues_name_nonempty", sql`length(trim(${table.name})) > 0`),
   check("venues_timezone_nonempty", sql`length(trim(${table.timezone})) > 0`),
+]);
+
+export const venueMembers = pgTable("venue_members", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  venueId: uuid("venue_id").notNull().references(() => venues.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => authUsers.id, { onDelete: "cascade" }),
+  role: venueMemberRole("role").notNull(),
+  status: venueMemberStatus("status").notNull().default("active"),
+  createdAt: createdAt(),
+}, (table) => [
+  unique("venue_members_venue_user_unique").on(table.venueId, table.userId),
+  index("venue_members_user_status_idx").on(table.userId, table.status),
 ]);
 
 export const venueTables = pgTable("venue_tables", {
