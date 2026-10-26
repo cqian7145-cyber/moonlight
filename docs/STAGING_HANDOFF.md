@@ -1,10 +1,10 @@
 # Moonlight M-014S｜Railway + Cloudflare Access Staging 交接准备
 
-状态：**LOCAL_PREP_IN_PROGRESS**。本文件只做本地准备；没有登录或操作 Railway/Cloudflare 账户，没有创建服务/数据库/隧道，没有修改 DNS，没有 push 或公开服务。受限 staging 与公网发布仍需分开授权。
+状态：**LOCAL_PREP_PASS**。本地仓库审查、部署方案、环境变量清单、Access 防绕过设计、安全验收矩阵及本机门禁已完成。重新在项目工作区执行 `npm ci`、lint、typecheck、默认测试、DB 测试和 production build 均通过；安装时的 npm audit 风险和未批准 lifecycle scripts 仍按下文记录为 release blocker。没有登录或操作 Railway/Cloudflare 账户，没有创建服务/数据库/隧道，没有修改 DNS，没有 push 或公开服务。受限 staging 与公网发布仍需分开授权。
 
 ## 1. 当前仓库与部署事实
 
-- 验收基线：`651fea440dde73dfeaaa6ddcf78d9bf877dcb535`，`main` 与现场 `origin/main` 一致；根目录任务文档是未跟踪输入，必须保留、不纳入提交。
+- 验收基线：`651fea440dde73dfeaaa6ddcf78d9bf877dcb535`，`main` 与现场 `origin/main` 一致；本地准备文档提交后 `main` 领先远端 1 个提交；根目录任务文档是未跟踪输入，必须保留、不纳入提交。
 - Next.js App 根目录是 `web/`，有独立 `package.json` 和 `package-lock.json`；没有 Railway/Docker 配置文件。部署目标为标准 Node.js Next server，不是静态导出。
 - 版本：Next 16.4.3、React 19.3.0、Better Auth 1.7.12、Drizzle ORM 0.45.4、pg 8.23.1。当前机器 Node 24.12.0；`package.json` 没有 `engines` 锁定，所以仅凭本机 Node 版本不能证明 Railway runtime 版本。
 - `npm run build` 是 Next production build，`npm start` 是 `next start`；没有 standalone output。部署必须包含完整 Next server runtime 与必要 production dependencies。
