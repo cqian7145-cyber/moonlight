@@ -32,7 +32,7 @@ npm run dev
 - `/play/together/<tableCode>` 从有效桌码发起两人挑战；房主分享 `/join#invite=<secret>` 邀请链接，受邀者在确认门店与玩法并主动同意后加入。双方使用 `/api/play-groups` 下独立的 HttpOnly 会话、读取同一绑定题包、各自提交三题；仅双方完成后才可读取共同结果。房间最多两人，邀请约 15 分钟失效。
 - 双人 API：`POST /api/play-groups` 创建；`POST /api/play-groups/invitation` 只读预览邀请；`POST /api/play-groups/join` 加入；`GET /api/play-groups/current`、`questions`、`result` 读取本人状态/题目/揭晓；`POST /api/play-groups/answer` 与 `leave` 提交答案和退出。个人 Cookie `moonlight_attempt` 保持 `/api/attempts` 路径；双人 Cookie `moonlight_group_attempt` 限于 `/api/play-groups`，两者不能互相授权。
 - `/play/demo` 仍提供三道独立的本地演示题和确定性趣味结果，不读写数据库。
-- `/login` 是受控开通账号的商家登录页；公众注册关闭。`/staff` 只列出当前登录者有权访问的门店；`/admin` 限 owner 使用。M-011 题包编辑、活动上架、桌码管理和 M-012 报表仍未开发。
+- `/login` 是受控开通账号的商家登录页；公众注册关闭。`/staff` 只列出当前登录者有权访问的门店并提供活动/桌位只读概要；`/admin` 限 owner 使用。M-011 已提供题包编辑、活动上架和桌码管理；M-012 报表仍未开发。
 - 商家认证使用 Better Auth 1.7.12 与 Drizzle PostgreSQL adapter，登录 Cookie 与顾客个人/双人 Cookie 相互独立。`venue_members` 对每个门店/用户组合保存 owner/staff 角色及 active/disabled 状态；页面和 `/api/merchant/venues` 每次请求都从服务器会话及数据库 membership 校验权限。
 - 商家测试账户可通过仅本地运行的 `web/scripts/provision-merchant-local.ts` 受控创建；该工具只接受 `127.0.0.1`/loopback 的 `moonlight_dev`（55432）数据库、要求交互输入密码和显式确认，生产环境及公开 HTTP 注册端点不可建号。开发者自行设置未跟踪的 `BETTER_AUTH_SECRET`（至少 32 字符）和 `BETTER_AUTH_URL`；部署需 HTTPS 和独立管理密钥。
 - `/api/health` 提供不依赖数据库的健康检查。
@@ -62,7 +62,7 @@ seed 只插入固定 ID 的虚构 Venue、桌位、题包、不可变版本和�
 
 ## 尚未实现
 
-商家 CRUD 后台、AI、微信小程序、支付和上线均未实现。双人流程是桌码＋短期邀请链接的轻量轮询体验，不包含陌生人匹配、聊天、跨桌社交、WebSocket 或可证明同桌的身份/位置校验。正式桌码及个人/双人答题流程需要已配置的 PostgreSQL `DATABASE_URL`；没有数据库时页面与 API 安全地显示/返回暂不可用，不会生成演示门店或伪造参与记录。数据库 schema 和本地 PGlite 测试不代表已有可部署的生产后端。商家账号创建、HTTPS 反向代理及生产密钥轮换仍需部署前由受控运营流程配置。
+M-012 报表、AI、微信小程序、支付和上线均未实现。双人流程是桌码＋短期邀请链接的轻量轮询体验，不包含陌生人匹配、聊天、跨桌社交、WebSocket 或可证明同桌的身份/位置校验。正式桌码及个人/双人答题流程需要已配置的 PostgreSQL `DATABASE_URL`；没有数据库时页面与 API 安全地显示/返回暂不可用，不会生成演示门店或伪造参与记录。数据库 schema 和本地 PGlite 测试不代表已有可部署的生产后端。商家账号创建、HTTPS 反向代理及生产密钥轮换仍需部署前由受控运营流程配置。
 
 ## 目录
 

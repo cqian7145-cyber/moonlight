@@ -226,6 +226,52 @@ a { color: inherit; }
 .merchantRoleLine, .merchantPlaceholder { color: var(--muted); font-size: 12px; }
 .merchantPlaceholder { margin-top: 16px; padding: 16px; border: 1px dashed var(--field-border); border-radius: 12px; line-height: 1.65; }
 .merchantInlineLink { color: var(--blue); text-decoration: underline; text-underline-offset: 3px; }
+.merchantManageNav { display: flex; flex-wrap: wrap; gap: 9px; margin: 24px 0 32px; padding-bottom: 18px; border-bottom: 1px solid var(--rule); }
+.merchantManageNav a { min-height: 42px; display: inline-flex; align-items: center; padding: 0 14px; border: 1px solid var(--rule); border-radius: 999px; background: var(--paper); color: var(--secondary-ink); font-size: 13px; font-weight: 600; text-decoration: none; transition: border-color 180ms ease, color 180ms ease, background-color 180ms ease; }
+.merchantManageNav a:hover, .merchantManageNav a[aria-current="page"] { border-color: var(--blue); color: var(--blue); background: var(--notice-background); }
+.merchantManageSection { display: grid; gap: 20px; margin-top: 28px; }
+.merchantSectionHeading { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.merchantSectionHeading h2, .merchantReadOnlySummary h2 { margin: 0; font-size: clamp(22px, 4vw, 28px); letter-spacing: -.03em; }
+.merchantActionButton { min-height: 46px; padding: 0 17px; border: 1px solid transparent; border-radius: 10px; background: var(--blue); color: var(--paper); font: inherit; font-size: 14px; font-weight: 650; cursor: pointer; transition: transform 180ms ease, background-color 180ms ease, opacity 180ms ease; }
+.merchantActionButton:hover:not(:disabled) { background: var(--blue-hover); transform: translateY(-1px); }
+.merchantActionButton:disabled { cursor: wait; opacity: .58; }
+.merchantSecondaryButton { border-color: var(--rule); background: var(--paper); color: var(--ink); }
+.merchantSecondaryButton:hover:not(:disabled) { background: var(--canvas); color: var(--ink); }
+.merchantActionButton:focus-visible, .merchantTextButton:focus-visible, .merchantField input:focus-visible, .merchantField select:focus-visible, .merchantManageNav a:focus-visible, .merchantInlineLink:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 3px; }
+.merchantActionRow { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.merchantManageList { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.merchantManageList > li { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 17px 18px; border: 1px solid var(--rule); border-radius: 14px; background: var(--paper); }
+.merchantManageList strong { overflow-wrap: anywhere; font-size: 14px; }
+.merchantManageList p { margin: 7px 0 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.merchantManageList .merchantInlineLink { white-space: nowrap; }
+.merchantVersionChip { display: inline-flex; margin: 9px 7px 0 0; padding: 4px 8px; border-radius: 999px; background: var(--canvas); color: var(--muted); font-size: 11px; }
+.merchantEmptyState, .merchantCurrentPublication { padding: 18px; border: 1px solid var(--rule); border-radius: 13px; background: var(--paper); color: var(--muted); font-size: 14px; line-height: 1.7; }
+.merchantCurrentPublication strong { color: var(--ink); }
+.merchantCurrentPublication p { margin: 9px 0 0; }
+.merchantField { display: grid; gap: 8px; color: var(--secondary-ink); font-size: 13px; font-weight: 600; }
+.merchantField input, .merchantField select { width: 100%; min-height: 48px; padding: 0 13px; border: 1px solid var(--field-border); border-radius: 10px; background: var(--paper); color: var(--ink); font: inherit; font-weight: 400; }
+.merchantQuestionEditor { display: grid; gap: 16px; margin: 0; padding: clamp(17px, 4vw, 24px); border: 1px solid var(--rule); border-radius: 15px; background: var(--paper); }
+.merchantQuestionEditor legend { padding: 0 8px; font-size: 15px; font-weight: 700; }
+.merchantChoiceEditor { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.merchantFormMessage[role="alert"] { padding: 10px 12px; border-radius: 8px; background: var(--notice-background); }
+.merchantStatusMessage { padding: 13px 15px; border-left: 3px solid var(--blue); background: var(--notice-background); color: var(--notice-ink); font-size: 13px; line-height: 1.65; }
+.merchantCreateTable { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 12px; }
+.merchantTableList { margin-top: 8px; }
+.merchantTextButton:disabled { cursor: wait; opacity: .55; }
+.merchantReadOnlySummary { display: grid; gap: 12px; margin-top: 28px; padding: clamp(20px, 4vw, 30px); border: 1px solid var(--rule); border-radius: 16px; background: var(--paper); }
+.merchantReadOnlySummary h3 { margin: 8px 0 0; font-size: 16px; }
+.merchantReadOnlySummary > p { margin: 0; }
+.merchantQrPrint { display: grid; justify-items: center; gap: 12px; padding: 22px; border: 1px solid var(--rule); border-radius: 14px; background: var(--paper); text-align: center; }
+.merchantQrPrint h3, .merchantQrPrint p { margin: 0; }
+.merchantQrPrint img { width: min(100%, 360px); height: auto; image-rendering: pixelated; }
+.merchantQrPrint a { overflow-wrap: anywhere; color: var(--muted); font-size: 12px; }
+.merchantQrActions { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 12px; }
+@media print {
+  body * { visibility: hidden !important; }
+  .merchantQrPrint, .merchantQrPrint * { visibility: visible !important; }
+  .merchantQrPrint { position: fixed; inset: 0; display: grid; border: 0; border-radius: 0; box-shadow: none; }
+  .merchantQrActions { display: none !important; }
+}
 @keyframes entryPulse { to { opacity: .45; transform: scale(.94); } }
 
 @media (max-width: 760px) {
@@ -254,6 +300,11 @@ a { color: inherit; }
   .merchantHeaderRight { gap: 12px; }
   .merchantVenueLabel { max-width: 40vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .merchantVenueList li { align-items: flex-start; flex-direction: column; }
+  .merchantSectionHeading, .merchantManageList > li { align-items: flex-start; flex-direction: column; }
+  .merchantCreateTable { grid-template-columns: 1fr; }
+  .merchantCreateTable .merchantActionButton { width: 100%; }
+  .merchantChoiceEditor { grid-template-columns: 1fr; }
+  .merchantQrPrint a { max-width: 100%; }
 }
 @media (max-width: 400px) {
   .headerNote { font-size: 11px; }

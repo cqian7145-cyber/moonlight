@@ -105,6 +105,27 @@ describe("PostgreSQL schema migrations and constraints", () => {
     await expect(createVersion(venue.id, template.id, 1)).rejects.toMatchObject({ cause: { code: "23505" } });
   });
 
+  it("keeps existing templates compatible while constraining persisted draft cue count", async () => {
+    const venue = await createVenue("Draft content schema");
+    const legacyTemplate = await createTemplate(venue.id);
+    const [legacyRow] = await db.select().from(schema.activityTemplates).where(eq(schema.activityTemplates.id, legacyTemplate.id));
+    expect(legacyRow?.draftContent).toBeNull();
+
+    const validDraft: schema.ActivityDraftContent = { title: "Draft with content", cues: [1, 2, 3].map((number) => ({
+      key: `question-${number}`, prompt: `题目 ${number}`, choices: ["A", "B", "C"],
+    })) };
+    const [saved] = await db.insert(schema.activityTemplates).values({
+      venueId: venue.id, title: "Draft with content", draftContent: validDraft,
+    }).returning();
+    expect(saved?.draftContent).toEqual(validDraft);
+
+    await expect(db.insert(schema.activityTemplates).values({
+      venueId: venue.id,
+      title: "Invalid draft",
+      draftContent: { title: "Invalid", cues: validDraft.cues.slice(0, 2) },
+    })).rejects.toMatchObject({ cause: { code: "23514" } });
+  });
+
   it("rejects updates and deletes of an immutable activity version", async () => {
     const venue = await createVenue("Immutable version");
     const template = await createTemplate(venue.id);

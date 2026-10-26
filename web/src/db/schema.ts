@@ -20,12 +20,15 @@ import { sql } from "drizzle-orm";
 const createdAt = () => timestamp("created_at", { withTimezone: true, mode: "date" }).defaultNow().notNull();
 
 export type ActivityContent = {
+  title?: string;
   cues: readonly {
     key: string;
     prompt: string;
     choices: readonly string[];
   }[];
 };
+
+export type ActivityDraftContent = { title: string; cues: ActivityContent["cues"] };
 
 export const venueStatus = pgEnum("venue_status", ["active", "suspended", "archived"]);
 export const templateStatus = pgEnum("template_status", ["draft", "archived"]);
@@ -132,12 +135,21 @@ export const activityTemplates = pgTable("activity_templates", {
   id: uuid("id").defaultRandom().primaryKey(),
   venueId: uuid("venue_id").notNull().references(() => venues.id, { onDelete: "restrict" }),
   title: varchar("title", { length: 160 }).notNull(),
+  draftContent: jsonb("draft_content").$type<ActivityDraftContent | null>(),
   status: templateStatus("status").notNull().default("draft"),
   createdAt: createdAt(),
   updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).defaultNow().notNull(),
 }, (table) => [
   unique("activity_templates_id_venue_unique").on(table.id, table.venueId),
   check("activity_templates_title_nonempty", sql`length(trim(${table.title})) > 0`),
+  check("activity_templates_draft_content_shape", sql`${table.draftContent} IS NULL OR (
+    jsonb_typeof(${table.draftContent}) = 'object' AND
+    CASE WHEN jsonb_typeof(${table.draftContent} -> 'title') = 'string'
+      AND length(trim(${table.draftContent} ->> 'title')) > 0
+      AND jsonb_typeof(${table.draftContent} -> 'cues') = 'array'
+    THEN jsonb_array_length(${table.draftContent} -> 'cues') = 3
+    ELSE false END
+  )`),
 ]);
 
 export const activityVersions = pgTable("activity_versions", {

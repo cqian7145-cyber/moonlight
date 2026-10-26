@@ -35,7 +35,7 @@ async function findOwnedAttempt(db: DomainDb, token: string, lock = false, venue
     mode: schema.attempts.mode, status: schema.attempts.status, consentedAt: schema.attempts.consentedAt,
     startedAt: schema.attempts.startedAt, completedAt: schema.attempts.completedAt,
     venueId: schema.publications.venueId, versionId: schema.publications.versionId, content: schema.activityVersions.content,
-    activityTitle: schema.activityTemplates.title,
+    activityTitle: sql<string>`coalesce(${schema.activityVersions.content}->>'title', ${schema.activityTemplates.title})`,
   }).from(schema.attempts)
     .innerJoin(schema.publications, eq(schema.publications.id, schema.attempts.publicationId))
     .innerJoin(schema.activityVersions, and(

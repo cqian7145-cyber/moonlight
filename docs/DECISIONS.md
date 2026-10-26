@@ -96,4 +96,13 @@
 - `venue-auth.ts` 是 `/staff`、`/admin` 与未来商家 API 的权威 DAL。每请求使用数据库 session 重新识别用户、查询启用账户和 active membership，不信任客户端传入 role；当前门店 ID 必须再经 membership 校验。staff 可读其门店最小资料但不可读 owner API；owner 仅管理自己所属门店。空授权、停用 membership、停用账号、无效 session 与数据库异常均不会被当作授权通过。
 - `/login`、`/staff`、`/admin` 和商家 API 禁缓存、no-referrer、noindex；`headers()` 在认证检查前读取，使 Cache Components 在请求时读取授权，阻止静态预渲染配置错误或跨会话私有内容。页面受 Suspense 边界保护，当前版本仍需在任何新的商家页面/API 中复用该 DAL，不以隐藏 UI 代替授权。
 - 验收：真实 PostgreSQL 18.6（D 盘、loopback）重复应用 0001 migration；原九张业务表及 M-009 触发器保留，测试不清理历史虚构记录。PGlite 真实 migration 集成测试覆盖 signup 拒绝、散列存储、通用错误、Cookie 属性、登出撤销、限流、same-origin、角色/跨店/禁用。真实 Google Chrome 三个隔离上下文覆盖 owner、staff、无成员账户，退出和旧 cookie、停用 membership/account、跨店 URL/API、signup HTTP、375/390px 布局与私有响应头。随后运行既有 M-009 Chrome + PostgreSQL 脚本，实际完成双人揭晓与个人三题答题；新增游戏行均为随机虚构验收数据。
-- 未覆盖部署 HTTPS 反向代理、可信客户端 IP 限流、密钥轮换、账户找回与邮箱验证投递、真实商家运营开户、生产监控、多实例/高并发认证压力；在这些验证完成前不宣称生产就绪。未实现题包/桌码/活动 CRUD（M-011）、经营报表（M-012）、AI 或平台管理员。
+- 未覆盖部署 HTTPS 反向代理、可信客户端 IP 限流、密钥轮换、账户找回与邮箱验证投递、真实商家运营开户、生产监控、多实例/高并发认证压力；在这些验证完成前不宣称生产就绪。经营报表（M-012）、AI 或平台管理员未实现。
+
+## M-011 商家自助运营
+
+- 商家运营采用 owner 写入、staff 只读：owner 可创建/编辑题包草稿、发布新不可变版本、切换/下架当前活动、管理桌位及轮换桌码；staff 仅可查看当前上架活动概要、桌位名称和启停状态。每个服务端读取和写入单独核对 Better Auth 会话、active `venue_members` 和目标门店；写请求额外核对 `Origin` 与 `Host` 是否匹配可信 origin。
+- `activity_templates.draft_content` 保存可持续编辑的题名与 3×3 纯文本题目，cue key 由系统生成并在每个问题槽位编辑时保持稳定。模板原 `title` 不随草稿重命名，保护迁移前版本的历史显示标题；发布时将草稿题名与内容复制到新 `activity_versions.content`。版本仍由既有数据库冻结触发器拒绝更新和删除。
+- 新 migration 只增加可空草稿 JSONB 与形状约束；既有模板可保留 null 草稿，新写入需题名、三题和每题三选项。未改写任何已应用 migration 或已冻结版本内容。
+- 替换当前活动时事务先锁定门店行，再核对 `expectedCurrentPublicationId`，停用旧 publication 并创建新版本/active publication；既有唯一索引继续保证每店最多一个 active。并发旧请求得到 409 并提示刷新。
+- 普通下架阻止新 Attempt 取得当前活动；已开始的个人或双人 Attempt 继续按绑定的旧 Publication/版本读题并提交。普通下架不保证立即撤回进行中的内容；紧急撤回仍需另行设计可审计的停止机制。
+- 桌码明文只在成功新建或确认轮换的无缓存响应中返回一次，数据库仅存 SHA-256 哈希。已存在的旧码不会再次显示；轮换后旧码不能创建新参与，现有 Attempt 仍按原绑定版本继续。QR 使用 MIT 许可的 `qrcode` 生成，URL 来源于配置的 `MOONLIGHT_PUBLIC_ORIGIN`（本地缺省复用 `BETTER_AUTH_URL`），不使用请求 Host 拼接公开链接。

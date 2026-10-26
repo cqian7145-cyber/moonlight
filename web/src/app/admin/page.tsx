@@ -70,10 +70,11 @@ async function AdminContent({ searchParams }: AdminPageProps) {
           <h1 id="admin-title">{selected.name}</h1>
           <p className="merchantRoleLine">当前角色：店主（owner）</p>
           <p>门店状态：{selected.status === "active" ? "营业中" : selected.status === "suspended" ? "已暂停" : "已归档"}</p>
-          <div className="merchantPlaceholder">
-            <h2>门店管理功能</h2>
-            <p>题包、活动与桌码管理将在 M-011 开发；经营报表将在 M-012 开发。</p>
-          </div>
+          <nav className="merchantManageNav" aria-label="门店运营管理">
+            <Link href={`/admin/venues/${selected.id}/activities`}>题包管理</Link>
+            <Link href={`/admin/venues/${selected.id}/publications`}>活动上架与下架</Link>
+            <Link href={`/admin/venues/${selected.id}/tables`}>桌位与二维码</Link>
+          </nav>
           <Link className="merchantInlineLink" href={`/staff?venueId=${encodeURIComponent(selected.id)}`}>返回门店工作台</Link>
         </section>
       </div>

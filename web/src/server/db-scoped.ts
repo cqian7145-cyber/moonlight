@@ -1,5 +1,5 @@
 import "server-only";
-import { and, eq, isNull, lte } from "drizzle-orm";
+import { and, eq, isNull, lte, sql } from "drizzle-orm";
 import type { PgDatabase } from "drizzle-orm/pg-core";
 import type { PgQueryResultHKT } from "drizzle-orm/pg-core/session";
 import type { TablesRelationalConfig } from "drizzle-orm/relations";
@@ -18,7 +18,7 @@ export async function findAvailablePublication(db: DomainDb, venueId: string, no
     deactivatedAt: schema.publications.deactivatedAt,
     versionId: schema.activityVersions.id,
     content: schema.activityVersions.content,
-    title: schema.activityTemplates.title,
+    title: sql<string>`coalesce(${schema.activityVersions.content}->>'title', ${schema.activityTemplates.title})`,
     templateStatus: schema.activityTemplates.status,
   })
     .from(schema.publications)
