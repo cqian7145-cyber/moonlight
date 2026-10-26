@@ -229,6 +229,45 @@ a { color: inherit; }
 .merchantManageNav { display: flex; flex-wrap: wrap; gap: 9px; margin: 24px 0 32px; padding-bottom: 18px; border-bottom: 1px solid var(--rule); }
 .merchantManageNav a { min-height: 42px; display: inline-flex; align-items: center; padding: 0 14px; border: 1px solid var(--rule); border-radius: 999px; background: var(--paper); color: var(--secondary-ink); font-size: 13px; font-weight: 600; text-decoration: none; transition: border-color 180ms ease, color 180ms ease, background-color 180ms ease; }
 .merchantManageNav a:hover, .merchantManageNav a[aria-current="page"] { border-color: var(--blue); color: var(--blue); background: var(--notice-background); }
+
+.analyticsDashboard { max-width: 980px; margin-inline: auto; }
+.analyticsTitle, .analyticsPanelTitle { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.analyticsTitle h1 { margin: 0; }
+.analyticsTitle p, .analyticsPanel p { color: var(--muted); line-height: 1.65; }
+.merchantEyebrow { margin: 0 0 8px; color: var(--blue) !important; font-size: 12px !important; font-weight: 700; letter-spacing: .08em; }
+.analyticsPeriods { display: flex; gap: 8px; }
+.analyticsPeriods a { min-height: 40px; display: inline-flex; align-items: center; padding: 0 13px; border: 1px solid var(--rule); border-radius: 999px; color: var(--secondary-ink); text-decoration: none; }
+.analyticsPeriods a[aria-current="page"] { border-color: var(--blue); background: var(--notice-background); color: var(--blue); }
+.analyticsDefinition, .analyticsLimits, .analyticsEmpty { padding: 16px 18px; border: 1px solid var(--rule); border-radius: 16px; background: var(--notice-background); color: var(--secondary-ink); line-height: 1.7; }
+.analyticsKpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 20px 0; }
+.analyticsKpis article, .analyticsPanel { padding: 19px; border: 1px solid var(--rule); border-radius: 16px; background: var(--paper); }
+.analyticsKpis article { min-width: 0; display: grid; gap: 8px; }
+.analyticsKpis span, .analyticsKpis small { color: var(--muted); }
+.analyticsKpis strong { color: var(--ink); font-size: 30px; font-variant-numeric: tabular-nums; }
+.analyticsPanel { margin: 14px 0; }
+.analyticsPanel h2, .analyticsEmpty h2, .analyticsLimits h2 { margin-top: 0; font-size: 18px; }
+.analyticsPanelTitle > strong { white-space: nowrap; font-size: 24px; }
+.ratingDistribution { display: flex; flex-wrap: wrap; gap: 10px; }
+.ratingDistribution span { padding: 9px 12px; border: 1px solid var(--rule); border-radius: 10px; font-variant-numeric: tabular-nums; }
+.analyticsTableWrap { overflow-x: auto; }
+.analyticsTable { width: 100%; border-collapse: collapse; text-align: left; }
+.analyticsTable th, .analyticsTable td { padding: 12px 10px; border-bottom: 1px solid var(--rule); }
+.analyticsTable tbody th { font-weight: 600; }
+.analyticsLimits { margin-top: 18px; }
+.analyticsLimits ul { padding-left: 20px; }
+.analyticsLimits li + li { margin-top: 8px; }
+.feedbackCard { margin: 22px 0; padding: 18px; border: 1px solid var(--rule); border-radius: 16px; background: var(--notice-background); }
+.feedbackCard h2 { margin: 0; font-size: 18px; }
+.feedbackCard p { color: var(--muted); line-height: 1.6; }
+.feedbackChoices { display: flex; gap: 9px; }
+.feedbackChoice { width: 44px; height: 44px; border: 1px solid var(--rule); border-radius: 50%; background: var(--paper); color: var(--ink); font: inherit; font-weight: 700; cursor: pointer; transition: transform 180ms ease, border-color 180ms ease, color 180ms ease; }
+.feedbackChoice:hover:not(:disabled) { transform: translateY(-2px); border-color: var(--blue); color: var(--blue); }
+.feedbackChoice:focus-visible, .feedbackRetry:focus-visible, .analyticsPeriods a:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 3px; }
+.feedbackChoice:disabled { opacity: .6; cursor: wait; }
+.feedbackError { color: #b42318 !important; }
+.feedbackRetry { margin-left: 10px; border: 0; background: transparent; color: var(--blue); font: inherit; text-decoration: underline; }
+@media (max-width: 680px) { .analyticsTitle, .analyticsPanelTitle { flex-direction: column; } .analyticsKpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .analyticsKpis strong { font-size: 26px; } .analyticsTable th, .analyticsTable td { padding: 10px 7px; } }
+@media (prefers-reduced-motion: reduce) { .feedbackChoice { transition: none; } }
 .merchantManageSection { display: grid; gap: 20px; margin-top: 28px; }
 .merchantSectionHeading { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 .merchantSectionHeading h2, .merchantReadOnlySummary h2 { margin: 0; font-size: clamp(22px, 4vw, 28px); letter-spacing: -.03em; }

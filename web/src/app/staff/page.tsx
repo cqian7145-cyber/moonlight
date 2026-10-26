@@ -96,6 +96,7 @@ async function StaffContent({ searchParams }: StaffPageProps) {
             {tableRows.length ? <ul className="merchantManageList">{tableRows.map((table) => <li key={table.id}><strong>{table.name}</strong><span>{table.isEnabled ? "已启用" : "已停用"}</span></li>)}</ul> : <p>当前没有桌位。</p>}
             <p className="merchantFormHint">店员账号仅可查看活动和桌位概要，不会显示桌码，也不能保存、发布、上下架或轮换桌码。</p>
           </section>
+          <Link className="merchantInlineLink" href={`/admin/venues/${selected.id}/analytics?period=7d`}>查看经营复盘</Link>
           {selected.role === "owner" && <Link className="merchantInlineLink" href={`/admin?venueId=${encodeURIComponent(selected.id)}`}>进入店主管理首页</Link>}
           <Link className="merchantInlineLink" href={selected.role === "owner" ? `/admin/venues/${selected.id}/tables` : "/staff"}>
             {selected.role === "owner" ? "管理桌位与二维码" : "返回门店列表"}

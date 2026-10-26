@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { FeedbackControl } from "@/features/feedback/feedback-control";
 
 type RoomState = {
   status: "waiting" | "ready" | "completed";
@@ -235,6 +236,7 @@ export function DuoPlay({ tableCode }: { tableCode?: string }) {
     <article className="resultCard soloResultCard duoResultCard"><p className="resultLabel">双人共同结果</p><h1>{view.result.matchedCount} / {view.result.total} 道选择相同</h1><p className="resultDescription">{view.result.message}</p>
       <div className="duoComparisons">{view.result.questions.map((question, index) => <section className="duoCompareRow" key={question.cueKey}><div><span>第 {index + 1} 题</span><strong>{question.matched ? "相同" : "不同"}</strong></div><p>你：{view.questions.questions[index]?.choices[question.yourOptionIndex] ?? `选项 ${question.yourOptionIndex + 1}`}<br />朋友：{view.questions.questions[index]?.choices[question.friendOptionIndex] ?? `选项 ${question.friendOptionIndex + 1}`}</p></section>)}</div>
       <div className="suggestionBox"><span>可以从这里聊起</span><p>{view.result.message}</p></div><p className="resultDisclaimer">这是基于本次选择的轻松互动，不是人格测量或关系诊断。</p>
+      <FeedbackControl duo />
       <div className="resultActions"><button className="button buttonQuiet" type="button" onClick={() => void leave()}>结束并退出房间</button><Link className="button buttonPrimary" href={tableCode ? `/t/${encodeURIComponent(tableCode)}` : "/"}>回到入口</Link></div>
     </article></main>;
 

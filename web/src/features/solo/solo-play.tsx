@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { FeedbackControl } from "@/features/feedback/feedback-control";
 
 type Question = { cueKey: string; prompt: string; choices: string[] };
 type QuestionsResponse = {
@@ -129,6 +130,7 @@ export function SoloPlay({ tableCode }: { tableCode: string }) {
       <p className="resultDescription">{screen.result.description}</p>
       <div className="suggestionBox"><span>给今晚的小建议</span><p>{screen.result.suggestion}</p></div>
       <p className="resultDisclaimer">这是根据本次选择生成的轻松趣味结果，不是心理测量或诊断。</p>
+      <FeedbackControl />
       <div className="resultActions"><Link className="button buttonPrimary" href={deskHref}>回到桌码入口</Link></div>
     </article></main>;
   }

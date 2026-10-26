@@ -74,6 +74,7 @@ async function AdminContent({ searchParams }: AdminPageProps) {
             <Link href={`/admin/venues/${selected.id}/activities`}>题包管理</Link>
             <Link href={`/admin/venues/${selected.id}/publications`}>活动上架与下架</Link>
             <Link href={`/admin/venues/${selected.id}/tables`}>桌位与二维码</Link>
+            <Link href={`/admin/venues/${selected.id}/analytics?period=7d`}>经营复盘</Link>
           </nav>
           <Link className="merchantInlineLink" href={`/staff?venueId=${encodeURIComponent(selected.id)}`}>返回门店工作台</Link>
         </section>
