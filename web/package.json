@@ -8,10 +8,12 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "vitest run && node --test scripts/migrate-staging.test.mjs",
     "test:db": "vitest run src/db/schema.integration.test.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "drizzle-kit migrate --config=drizzle.local.config.ts",
+    "db:migrate:release": "node scripts/migrate-staging.mjs",
+    "test:migrate:pg": "node --test scripts/migrate-staging.postgres.test.mjs",
     "db:seed:m007b:local": "node scripts/seed-m007b.mjs"
   },
   "dependencies": {
