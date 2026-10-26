@@ -51,6 +51,7 @@ npm run dev
 
 - 当前只完成本地部署方案、D 盘隔离 PostgreSQL Migration 与备份恢复演练；**没有远程 staging 或公网服务**。相关文档：[部署方案](docs/DEPLOYMENT_PLAN.md)、[环境变量矩阵](docs/ENVIRONMENT_MATRIX.md)、[备份恢复手册](docs/BACKUP_RESTORE_RUNBOOK.md)、[隐私与保留草案](docs/PRIVACY_AND_RETENTION_DRAFT.md)、[验收矩阵](docs/STAGING_ACCEPTANCE.md)。
 - 本地构建和 localhost Chrome 不等于 HTTPS、供应商访问控制或代理入口已通过。公网开放继续受 `docs/RELEASE_BLOCKERS.md` 中 P0/P1 项限制。
+- Railway + Cloudflare Access 的本地 Staging handoff、origin 绕过方案、远程 migration 与 HTTPS/数据库验收矩阵见 [STAGING_HANDOFF.md](docs/STAGING_HANDOFF.md)。文档为准备材料，未创建云资源或修改 DNS。
 
 ### D 盘隔离 PostgreSQL 验收
 

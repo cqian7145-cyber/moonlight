@@ -12,6 +12,10 @@
 | `NODE_ENV` | `development` 或测试工具设置的 `test` | 平台设为 `production` | 生产 Cookie `Secure` 行为依赖 production；不能在公网服务设置为 development。 |
 | `PORT` / `HOSTNAME` | Next 默认值或本机显式端口 | 平台提供；监听只绑定容器/内部接口，不暴露 PG 或内部管理端口 | `npm start` 使用 `next start`；平台需验证其端口注入方式。 |
 | `MOONLIGHT_REAL_PG` | 仅在本地隔离数据库专项测试临时设为 `1` | 不设置 | 启用 5 个需要真实 PostgreSQL 的专项测试；不得放进服务运行环境。 |
+| `CF_ACCESS_TEAM_DOMAIN` / `CF_ACCESS_AUD` | 不设置 | 仅当实现 Access JWT origin verifier 后，由配置提供 issuer 和指定 application audience | 当前代码没有读取这两个变量；设置值本身不启用 Cloudflare Access 验签。 |
+| `MIGRATION_DATABASE_URL` | 不设置 | 仅提供给未来 staging-only one-off migration job | 提议变量，runner 和独立 DB role 尚未实现；不能传给 Web runtime。 |
+
+Railway 的平台变量 `PORT` 由平台注入；Cloudflare Tunnel token 只注入 tunnel service，不传给 Next Web service。具体的 Railway/Cloudflare 准备与绕过设计见 [STAGING_HANDOFF.md](STAGING_HANDOFF.md)。
 
 ## 样例占位
 
