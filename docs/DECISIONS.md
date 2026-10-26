@@ -124,4 +124,8 @@
 
 - Chrome 写请求 403 的原因是 `web/.env.local` 中的可信 Origin/Base URL 沿用 `http://localhost:3000`，而 Chrome 与 Next listener 使用 `http://127.0.0.1:3001`。以被 Git 忽略的本机配置统一 `MOONLIGHT_PUBLIC_ORIGIN` 和 `BETTER_AUTH_URL`；备份仅位于 D 盘受 ACL 保护的 `.local/`。不放宽 Origin、Host、CSRF 或代理校验。
 - 本地真实 Chrome 155 + PostgreSQL 18.6 回归已通过；具体覆盖、唯一未完成的浏览器级指标 SQL 逐项对账、自动门禁和生产 Release Blockers 见 `TEST_MATRIX.md`、`SECURITY_REVIEW.md`、`RELEASE_BLOCKERS.md`。这项本地验收不表示公网发布就绪。
-- 桌码轮换的实际语义为旧码拒绝新 Attempt、已有匿名 Cookie 可继续读取已绑定 Attempt。该语义作为产品决策待确认，不把常规轮换称作紧急会话撤销。
+- 普通桌码轮换使旧码不能创建新 Attempt；已通过本人匿名 Cookie 绑定的合法 Attempt 可继续完成，只要桌位和门店保持 active。轮换不被描述为现有会话撤销。
+- 门店状态切为 `suspended` 是紧急停用开关：拒绝个人/双人敏感读取与写入，即使参与已开始；恢复为 `active` 后恢复服务。普通题包下架只阻止新参与，已有 Attempt 仍按绑定的不可变版本继续。当前没有应用内的最小权限状态切换 API 或 append-only 审计表；生产环境不得把直接 SQL 更新冒充为可追责操作。
+- M-014 验收只允许在 D 盘虚构数据库和本机回环端口；远程 staging 与公网开放分别需要单独授权。没有供应商、域名、访问控制和远程迁移身份，不创建 staging URL 或宣称 HTTPS 验收通过。
+- M-014 将桌码语义明确为：普通轮换阻止旧码启动新参与，但有效匿名凭证可继续已有合法 Attempt；门店紧急暂停会阻断所有顾客敏感读写。正常活动下架仅阻止新参与，历史参与保持绑定不可变版本。该规则是产品决定并有本地浏览器/PG 回归证据，不依赖部署假设。
+- M-014 本地真实 Chrome 155 + D 盘 PostgreSQL 18.6 全链路复跑通过；同源/恶意 Origin、Host 和伪造 forwarded headers 的 loopback HTTP 探针结果及其边界见 `docs/STAGING_ACCEPTANCE.md`。B 受限 staging 尚未获外部资源授权，C 公网开放未授权；本地验证不得解释为外部发布验收。

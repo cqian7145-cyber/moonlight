@@ -47,6 +47,11 @@ npm run dev
 - `venues.status = suspended` 可阻止该门店的新参与及现有参与的敏感读写；正常活动下架仍保留已开始参与的冻结版本。轮换桌码阻止旧码创建新参与，不撤销进行中的个人/双人会话。
 - M-013R2 已校准本地可信 Origin，并完成真实 Chrome＋D 盘 PostgreSQL 全链路安全回归及质量门禁。公网发布仍受依赖审计、TLS/可信代理 IP、可审计紧急停用和隐私保留政策等条件限制。具体证据见 [安全审查](docs/SECURITY_REVIEW.md)、[测试矩阵](docs/TEST_MATRIX.md) 和 [发布阻断](docs/RELEASE_BLOCKERS.md)。
 
+### M-014 受限部署与发布门禁
+
+- 当前只完成本地部署方案、D 盘隔离 PostgreSQL Migration 与备份恢复演练；**没有远程 staging 或公网服务**。相关文档：[部署方案](docs/DEPLOYMENT_PLAN.md)、[环境变量矩阵](docs/ENVIRONMENT_MATRIX.md)、[备份恢复手册](docs/BACKUP_RESTORE_RUNBOOK.md)、[隐私与保留草案](docs/PRIVACY_AND_RETENTION_DRAFT.md)、[验收矩阵](docs/STAGING_ACCEPTANCE.md)。
+- 本地构建和 localhost Chrome 不等于 HTTPS、供应商访问控制或代理入口已通过。公网开放继续受 `docs/RELEASE_BLOCKERS.md` 中 P0/P1 项限制。
+
 ### D 盘隔离 PostgreSQL 验收
 
 本机验收实例使用 PostgreSQL 18.6 EDB 官方免安装二进制 ZIP，仅监听 `127.0.0.1:55432`，不注册 Windows 服务；工具、数据、日志和本地凭证分别保存在被忽略的 `.tools/`、`.local/` 和 `web/.env.local` 中。开发应用账号 `moonlight_app` 仅拥有本地 `moonlight_dev` 数据库，不是超级用户；主机连接使用 SCRAM。
