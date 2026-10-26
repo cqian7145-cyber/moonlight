@@ -16,8 +16,9 @@ describe("customer table entry page content", () => {
     expect(html).toContain("3 个小选择");
     expect(html).toContain("正在确认参与状态");
     expect(html).not.toContain('href="/play/demo"');
-    expect(html).toContain("后续版本开放");
-    expect(html).toContain("答案会逐题保存");
+    expect(html).toContain('href="/play/together/Abcdefghijklmnopqrstuvwxzy0123456789_-Abcdefghijklmnop"');
+    expect(html).toContain("和朋友玩");
+    expect(html).toContain("双方自愿加入并完成后");
     expect(html).not.toContain("participantToken");
     expect(html).not.toContain("playGroupId");
   });

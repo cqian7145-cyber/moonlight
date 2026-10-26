@@ -141,6 +141,8 @@ a { color: inherit; }
 .entrySavedTitle { margin: 5px 0 0; color: var(--ink); font-size: 13px; font-weight: 650; }
 .entrySaved .entryStartNote { margin-top: 5px; }
 .entryDuoButton { width: 100%; flex-wrap: wrap; gap: 7px 9px; border-color: var(--rule); color: #697386; background: #f2f4f7; cursor: not-allowed; }
+.entryDuoActive { border-color: #cbd7ee; color: var(--ink); background: #fff; cursor: pointer; }
+.entryDuoActive:hover { border-color: #9bb4ee; color: var(--blue); background: #f5f8ff; transform: translateY(-1px); }
 .entryComingSoon { padding: 4px 7px; border-radius: 5px; color: #4a5362; background: #e6e9ef; font-size: 11px; font-weight: 600; }
 .entryContinueLink { min-height: 36px; display: inline-flex; align-items: center; margin-top: 5px; color: var(--blue); font-size: 13px; font-weight: 650; text-underline-offset: 3px; }
 .entryPrivacy { margin: 22px 2px 0; color: var(--muted); font-size: 12px; line-height: 1.75; }
@@ -166,6 +168,22 @@ a { color: inherit; }
 .soloResultCard .resultMark { position: relative; font-size: 0; }
 .soloResultCard .resultMark::after { width: 14px; height: 14px; border-radius: 50%; background: #cf9a22; content: ""; }
 .soloAnswerError { margin: 8px 0 0; color: #a12828; font-size: 13px; line-height: 1.6; }
+.duoIntro > .button { margin-top: 24px; }
+.duoConsent { display: flex; align-items: flex-start; gap: 11px; margin-top: 26px; padding: 16px; border: 1px solid var(--rule); border-radius: 11px; background: var(--canvas); color: #303846; font-size: 14px; line-height: 1.7; cursor: pointer; }
+.duoConsent input { width: 19px; height: 19px; flex: 0 0 19px; margin: 2px 0 0; accent-color: var(--blue); }
+.duoInviteCard { display: grid; gap: 15px; margin: 0 0 18px; padding: 20px; border: 1px solid #d5e1fa; border-radius: 16px; background: #f5f8ff; }
+.duoInviteCard strong { font-size: 15px; }
+.duoInviteCard p { margin: 6px 0 0; color: var(--muted); font-size: 13px; line-height: 1.65; }
+.duoInviteAction { display: flex; gap: 9px; min-width: 0; }
+.duoInviteAction input { width: 100%; min-width: 0; height: 48px; padding: 0 12px; border: 1px solid var(--rule); border-radius: 9px; background: white; color: #465061; font-size: 12px; }
+.duoInviteAction .button { min-height: 48px; flex: 0 0 auto; padding-inline: 15px; }
+.duoTextButton { border: 0; padding: 4px 0; background: transparent; cursor: pointer; }
+.duoResultCard { margin-top: clamp(28px, 7vh, 64px); }
+.duoComparisons { display: grid; gap: 10px; margin-top: 24px; }
+.duoCompareRow { padding: 15px 17px; border: 1px solid var(--rule); border-radius: 12px; background: #fff; }
+.duoCompareRow > div { display: flex; justify-content: space-between; align-items: center; color: var(--muted); font-size: 12px; }
+.duoCompareRow strong { color: var(--blue); font-size: 13px; }
+.duoCompareRow p { margin: 9px 0 0; color: #303846; font-size: 14px; line-height: 1.8; overflow-wrap: anywhere; }
 @keyframes entryPulse { to { opacity: .45; transform: scale(.94); } }
 
 @media (max-width: 760px) {
@@ -185,6 +203,8 @@ a { color: inherit; }
   .entryActivity { margin-top: 29px; padding: 19px 18px 21px; }
   .entryActions { grid-template-columns: 1fr; }
   .entrySaved, .entryStartStatus { min-height: 54px; }
+  .duoInviteAction { align-items: stretch; flex-direction: column; }
+  .duoInviteAction .button { width: 100%; }
   .entryPrivacy { margin-top: 17px; }
   .entryMessage { padding: 40px 24px; }
 }

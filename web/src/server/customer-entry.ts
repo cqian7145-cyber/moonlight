@@ -17,7 +17,7 @@ export type PublicTableEntry =
 const TABLE_CODE_PATTERN = /^[A-Za-z0-9_-]{16,128}$/;
 
 export type CustomerTableContext =
-  | { status: "ready"; venueId: string; venueName: string }
+  | { status: "ready"; venueId: string; venueName: string; tableId: string }
   | { status: "not_found" }
   | { status: "table_paused" }
   | { status: "venue_paused" };
@@ -29,6 +29,7 @@ export function isValidPublicTableCode(value: string): boolean {
 export async function getCustomerTableContext(db: DomainDb, tableCode: string): Promise<CustomerTableContext> {
   if (!isValidPublicTableCode(tableCode)) return { status: "not_found" };
   const [table] = await db.select({
+    tableId: schema.venueTables.id,
     venueId: schema.venueTables.venueId,
     tableEnabled: schema.venueTables.isEnabled,
     venueName: schema.venues.name,
@@ -41,7 +42,7 @@ export async function getCustomerTableContext(db: DomainDb, tableCode: string): 
   if (!table) return { status: "not_found" };
   if (!table.tableEnabled) return { status: "table_paused" };
   if (table.venueStatus !== "active") return { status: "venue_paused" };
-  return { status: "ready", venueId: table.venueId, venueName: table.venueName };
+  return { status: "ready", venueId: table.venueId, venueName: table.venueName, tableId: table.tableId };
 }
 
 export async function getPublicTableEntry(

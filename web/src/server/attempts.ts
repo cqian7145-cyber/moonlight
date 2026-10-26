@@ -67,9 +67,9 @@ export async function getAttemptProgress(db: DomainDb, input: { participantToken
   };
 }
 
-export async function getSoloQuestions(db: DomainDb, input: { participantToken: string; venueId?: string }) {
+async function getQuestionsForMode(db: DomainDb, input: { participantToken: string; venueId?: string }, expectedMode: "solo" | "duo") {
   const attempt = await findOwnedAttempt(db, input.participantToken, false, input.venueId);
-  if (attempt.mode !== "solo") fail("NOT_FOUND");
+  if (attempt.mode !== expectedMode) fail("NOT_FOUND");
   const rawCues: unknown = attempt.content?.cues;
   if (!Array.isArray(rawCues) || rawCues.length !== 3 || rawCues.some((cue: unknown) => {
     if (!cue || typeof cue !== "object") return true;
@@ -99,6 +99,22 @@ export async function getSoloQuestions(db: DomainDb, input: { participantToken: 
   };
 }
 
+export function getSoloQuestions(db: DomainDb, input: { participantToken: string; venueId?: string }) {
+  return getQuestionsForMode(db, input, "solo");
+}
+
+export async function getDuoQuestions(db: DomainDb, input: { participantToken: string }) {
+  const data = await getQuestionsForMode(db, input, "duo");
+  const [scope] = await db.select({ venueStatus: schema.venues.status, groupStatus: schema.playGroups.status, expiresAt: schema.playGroups.expiresAt, tableId: schema.playGroups.tableId, tableEnabled: schema.venueTables.isEnabled })
+    .from(schema.attempts).innerJoin(schema.playGroups, eq(schema.playGroups.id, schema.attempts.playGroupId))
+    .innerJoin(schema.venues, eq(schema.venues.id, schema.playGroups.venueId))
+    .leftJoin(schema.venueTables, eq(schema.venueTables.id, schema.playGroups.tableId))
+    .where(eq(schema.attempts.sessionTokenHash, hashToken(input.participantToken))).limit(1);
+  if (!scope || scope.venueStatus !== "active" || (scope.tableId !== null && scope.tableEnabled !== true)) fail("ACTIVITY_UNAVAILABLE");
+  if (scope.groupStatus === "expired" || scope.groupStatus === "cancelled" || data.status === "abandoned" || scope.expiresAt <= new Date()) fail("ATTEMPT_CLOSED");
+  return data;
+}
+
 export async function submitAnswer(db: DomainDb, input: { participantToken: string; cueKey: string; optionIndex: number }, dependencies?: Pick<ServiceDependencies, "clock">) {
   const now = serviceNow(dependencies);
   const outcome = await db.transaction(async (tx) => {
@@ -116,9 +132,12 @@ export async function submitAnswer(db: DomainDb, input: { participantToken: stri
       if (!attempt.playGroupId) fail("ATTEMPT_CLOSED");
       const expired = await markExpiredGroup(tx, attempt.playGroupId, now);
       if (expired) return { error: "ATTEMPT_CLOSED" as const };
-      const [group] = await tx.select({ status: schema.playGroups.status }).from(schema.playGroups)
+      const [group] = await tx.select({ status: schema.playGroups.status, venueStatus: schema.venues.status, tableId: schema.playGroups.tableId, tableEnabled: schema.venueTables.isEnabled }).from(schema.playGroups)
+        .innerJoin(schema.venues, eq(schema.venues.id, schema.playGroups.venueId))
+        .leftJoin(schema.venueTables, eq(schema.venueTables.id, schema.playGroups.tableId))
         .where(eq(schema.playGroups.id, attempt.playGroupId)).limit(1);
-      if (!group || group.status === "expired" || group.status === "cancelled") return { error: "ATTEMPT_CLOSED" as const };
+      if (!group || group.venueStatus !== "active" || (group.tableId !== null && group.tableEnabled !== true)) return { error: "ACTIVITY_UNAVAILABLE" as const };
+      if (group.status === "expired" || group.status === "cancelled") return { error: "ATTEMPT_CLOSED" as const };
     }
     const cues = attempt.content.cues;
     const cue = cues.find((item) => item.key === input.cueKey);

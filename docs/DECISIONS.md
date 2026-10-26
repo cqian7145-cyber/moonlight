@@ -5,7 +5,7 @@
 - 服务大学城社交型小酒馆。
 - 无大屏，以桌面二维码引导顾客在手机 H5 随时轻互动。
 - 个人模式必须可用，顾客可以独自开始和完成一轮玩法。
-- 双人顾客页面、联机 API 与商家正式功能仍留待后续任务；M-005 只建立未对外开放的服务端领域规则。
+- 双人顾客页面和顾客 API 已在 M-009 开放为仅限两人的自愿邀请挑战；商家正式功能仍留待后续任务。
 - 商家后续负责启用内容和查看复盘；当前任务不建设正式商家后台。
 
 ## 当前技术方向
@@ -35,14 +35,14 @@
 - 活动版本规则固定为 3 道题，每题 3 个非空选项，以匹配 M-003 个人结果算法。数据库 migration 继续允许每题至少 2 项；服务层采用更窄的 V1 业务校验。
 - 个人与邀请令牌由 Node `crypto.randomBytes(32)` 生成，只在创建响应中返回原文，数据库保存 SHA-256 哈希；提供给创建 API 的可恢复 token 只能命中已存在参与记录，不能由调用方选取新 token。邀请加入要求单独明确同意。
 - 双人房间加入在一个 Drizzle transaction 中先对目标 `play_groups` 行执行 `SELECT ... FOR UPDATE`，然后检查有效成员数并写入成员；同组持锁串行化，拒绝第三席。服务事务不读取或写入其他门店的业务行，关系仍由 M-004 的复合外键兜底。
-- PGlite 用真实 M-004 SQL migration 驱动集成测试，覆盖事务、唯一约束、同意/权限、答案幂等、状态与过期。PGlite 为单连接测试环境，不证明 PostgreSQL 多连接锁等待与并发抢占；M-013 及真实组队开放前必须在真实 PostgreSQL 验证两到三客户端抢位、锁等待、超时和重试。
-- 双人状态映射为 `open -> waiting`、`paired -> ready`，完成状态从两名成员均 completed 派生；Schema 枚举没有 completed/abandoned 组状态，分别以派生结果和 `cancelled`/`expired` 表达，不新增迁移。
+- PGlite 用真实 M-004 SQL migration 驱动集成测试，覆盖事务、唯一约束、同意/权限、答案幂等、状态与过期。PGlite 为单连接测试环境，不证明 PostgreSQL 多连接锁等待与并发抢占；该真实并发门禁已在 M-009 用独立 PostgreSQL 客户端验证，M-013 仍需覆盖锁超时与重试策略。
+- 双人状态映射为 `open -> waiting`、`paired -> ready`，完成状态从两名成员均 completed 派生；Schema 枚举没有 completed/abandoned 组状态，分别以派生结果和 `cancelled`/`expired` 表达，不新增迁移。M-009 的独立真实 PostgreSQL 多连接验收已验证锁等待与最后一席串行化（见 M-009 记录）；M-013 仍需覆盖超时与重试策略。
 
 ## M-006 桌码入口与顾客首页
 
 - `/t/<tableCode>` 是动态服务端只读页面；原始桌码只用于 SHA-256 查找，不作为主键或认证。公开投影仅含门店名、当前有效活动标题和题数，查询复用 M-005 的活动可用性校验；不返回内部 ID、内容快照、答案或令牌。
 - 无效桌码走 Next.js 友好 not-found 页面；由于该动态页面以 Suspense 流式响应，运行时无效桌码响应状态为 HTTP 200（soft 404），页面 noindex。停用桌位、停用门店、无当前活动和数据库不可用有各自状态文案。桌码页设置 `no-store`、`no-referrer` 和 `noindex`，不在页面日志中记录原始码或底层错误。
-- 桌码页的个人入口只链接现有 `/play/demo`，并说明演示不保存记录；双人入口明确尚未开放。该页面不创建 Attempt、Submission、PlayGroup，也不引入公开 API。
+- 桌码页的个人入口进入正式个人流程；M-006 当时的双人占位在 M-009 被替换为显式同意后创建房间的入口。桌码页本身仍只读，不创建 Attempt、Submission、PlayGroup。
 - 页面数据必须由配置的 PostgreSQL 读取。本地没有数据库连接配置，未采用 PGlite 文件数据库或伪造样例数据；PGlite 仅用于以正式 SQL migration 建库的集成测试。真实 PostgreSQL 与浏览器连库需在后续具备安全隔离的 PostgreSQL 环境时验证。
 
 ## M-007 匿名个人参与与会话恢复
@@ -72,3 +72,15 @@
 - M-008 实测基线来自 M-007B 虚构 PostgreSQL：3 条 `in_progress` Attempt、0 条 Submission。一次早期真实 Chrome 检查因测试选择器失配在提交前退出，产生一条未答的虚构 Attempt；没有删除。正式 Chrome 流程创建了另 1 条 Attempt 并完成 3 道不同 cueKey 答题；最终 SQL 为 4 条 `in_progress`（包含旧基线三条和未答测试行）、1 条 `completed`、3 条 Submission、3 个不同 cueKey。正式流程刷新与第二标签重复读取同一结果，记录数不变。
 - Playwright 驱动本机 Chrome 的成功记录：开始 `201`；三题提交 `201/201/200`；相同答案重复 `200 duplicate`；不同答案 `409 answer_conflict`；无 Cookie 读题 `401`。375px 和 390px 视口均无横向溢出。API 集成测试从正式 SQL Migration 的 PGlite 实例执行；全套 Vitest 63 项通过，另验证下架 publication 后旧 Attempt 仍使用绑定版本继续答题。
 - PostgreSQL 18.6 的 migration 仍为 1 条、public 表 9 张；本任务未修改 SQL Migration。真实 PG 多客户端并发专项为 `NOT_RUN`，顺序浏览器测试不能证明跨客户端锁竞争。
+
+## M-009 双人默契与共同揭晓
+
+- 复用既有 `createPlayGroup`、`joinPlayGroup`、`getPlayGroupState`、`getPlayGroupResult`、`leavePlayGroup` 及 `submitAnswer`，保持九张 Schema 表和既有 SQL Migration 不变。数据库组行 `SELECT ... FOR UPDATE` 串行化加入；真实 PostgreSQL 验收使用两条独立连接确认只有一个邀请加入成功、成员数保持 2 且没有第三条 Attempt。
+- 顾客 API 为 `POST /api/play-groups`、`POST /api/play-groups/invitation`、`POST /api/play-groups/join`、`GET /api/play-groups/current`、`GET /api/play-groups/questions`、`POST /api/play-groups/answer`、`GET /api/play-groups/result`、`POST /api/play-groups/leave`。除邀请预览仅需一次性邀请秘密外，所有成员读取、答题和退出都必须使用加入后发出的组队 Cookie；房间 ID、桌码和邀请链接本身不授权成员读取。
+- `moonlight_attempt` Cookie 保持 `Path=/api/attempts`。双人凭证使用独立 `moonlight_group_attempt`，HttpOnly、SameSite=Lax、Secure 依 HTTPS/生产环境设置、无 Domain、Path `/api/play-groups`，有效期不超过 15 分钟。服务端只保存 M-005 生成的会话哈希。个人凭证和组队凭证不会互相认证。
+- 邀请凭证为 32 字节随机值，仅数据库保留哈希。房主页面把其置于分享链接的 URL fragment；fragment 不随初始页面请求发送。受邀页加载后立即移除 fragment，再通过同源 `POST /api/play-groups/invitation` 获取不含身份数据的门店/玩法摘要；预览不消费邀请、不写库，B 需再次明确同意才 POST 加入。邀请约 15 分钟过期且房间最多两位成员。
+- 双人当前状态仅投影本人答题数与朋友是否加入/完成，不含朋友答案、Attempt/PlayGroup ID、令牌或哈希。题目来自本人 Attempt 绑定版本，仅返回题干、三个选项和本人进度。结果端点在两人完成前返回 `result_not_ready`；完成后仅返回双方各自选择、逐题相同/不同和确定性提示，不返回内部记录标识。GET 状态/题目/结果不执行过期状态写入；命令请求会按 M-005 事务处理过期和退出。
+- 普通 Publication 下架后，既有参与继续使用绑定版本；Venue 紧急 suspended 会阻断题目、答题、状态及结果读取。加入/答题/退出等写请求要求同源 Origin；接口响应 `no-store`、`no-referrer`、`noindex`，错误不包含数据库细节。页面采用有限 2.5 秒轮询，没有 WebSocket；创建入口也用浏览器 Web Locks 减少同设备多标签重复创建。
+- 本地自动化质量：M-009 新增 PGlite＋真实 SQL Migration HTTP handler 覆盖及原个人模式回归。真实 Chrome 使用两个完全隔离 BrowserContext 连到 D 盘 PostgreSQL 18.6；第三上下文重复邀请加入被拒；375/390px 无横向溢出；原个人答题完成且组队 Cookie 未变。D 层并发测试通过两条 `max:1` PostgreSQL 池、不同 `pg_backend_pid` 和测试专用短暂延迟触发器观察真实 Lock wait；测试只追加随机虚构行，不清理历史数据。最终数量与执行记录见本任务验收报告。
+- 风险：邀请可以转发，不能证明同桌；无账号意味着没有跨设备恢复；Cookie/房间会在 15 分钟后过期。当前没有跨实例持久化匿名创建限流，浏览器 Web Locks 只减少同设备重复创建，部署前应评估可靠的速率限制。HTTPS、微信内置浏览器、真实移动网络及生产部署尚未验收。
+- 依赖审计记录：当前 `npm audit` 报 4 项 moderate（重复/传递项）：`drizzle-kit@0.31.11 -> @esbuild-kit/esm-loader@2.6.5 -> @esbuild-kit/core-utils@3.3.2 -> esbuild@0.18.20`，对应 esbuild <=0.24.2 开发服务器 Origin 边界公告 GHSA-67mh-4wv8-2f99；当前直接 `drizzle-kit` esbuild 0.25.12、Vite esbuild 0.28.2 不在该范围。该链属于开发工具链，不作为部署运行时依赖；audit 给出的 `drizzle-kit@0.18.1` 修复建议会跨大版本降级，本任务未执行自动修复或强制升级。

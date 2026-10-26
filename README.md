@@ -1,6 +1,6 @@
 # Moonlight
 
-Moonlight V1 面向大学城社交型小酒馆：不依赖大屏，顾客扫描桌面二维码即可在手机 H5 里随时轻互动。当前优先验证个人模式的完整体验。
+Moonlight V1 面向大学城社交型小酒馆：不依赖大屏，顾客扫描桌面二维码即可在手机 H5 里随时轻互动。当前支持个人模式与双方自愿加入的双人默契挑战。
 
 ## 技术栈
 
@@ -29,11 +29,13 @@ npm run dev
 - `/t/<tableCode>` 是正式只读桌码入口：校验哈希桌码并读取门店当前有效上架活动；需要配置 PostgreSQL `DATABASE_URL`，本地没有默认样例数据。
 - 顾客点击「自己玩」后，`POST /api/attempts/start` 创建或恢复匿名个人参与；`GET /api/attempts/current?tableCode=<tableCode>` 通过 HttpOnly Cookie 读取状态。接口不接收客户端 Attempt/Venue/Publication ID，不返回会话令牌或答案。
 - `/play/<tableCode>` 从 Attempt 绑定的不可变题包读取三题；`POST /api/attempts/answer` 逐题保存并由第三个有效答案完成参与；`GET /api/attempts/result` 仅向本人返回确定性个人趣味结果。刷新后依据服务端进度恢复，不使用本地假记录。
+- `/play/together/<tableCode>` 从有效桌码发起两人挑战；房主分享 `/join#invite=<secret>` 邀请链接，受邀者在确认门店与玩法并主动同意后加入。双方使用 `/api/play-groups` 下独立的 HttpOnly 会话、读取同一绑定题包、各自提交三题；仅双方完成后才可读取共同结果。房间最多两人，邀请约 15 分钟失效。
+- 双人 API：`POST /api/play-groups` 创建；`POST /api/play-groups/invitation` 只读预览邀请；`POST /api/play-groups/join` 加入；`GET /api/play-groups/current`、`questions`、`result` 读取本人状态/题目/揭晓；`POST /api/play-groups/answer` 与 `leave` 提交答案和退出。个人 Cookie `moonlight_attempt` 保持 `/api/attempts` 路径；双人 Cookie `moonlight_group_attempt` 限于 `/api/play-groups`，两者不能互相授权。
 - `/play/demo` 仍提供三道独立的本地演示题和确定性趣味结果，不读写数据库。
 - `/staff`、`/admin` 仅说明尚未开发。
 - `/api/health` 提供不依赖数据库的健康检查。
-- `web/src/db/schema.ts` 定义 9 张 V1 游戏数据表；M-008 复用现有 Migration/Schema 与 M-005 领域状态机，不新增数据表。
-- Cookie 名为 `moonlight_attempt`，HttpOnly、SameSite=Lax、Path=`/api/attempts`、30 天有效；生产响应设 Secure（生产部署应使用 HTTPS），开发模式的本地 HTTP 不设 Secure。`next start` 的本地生产构建也设 Secure；Chrome 可在 localhost 接受该 Cookie，但这不代表局域网 HTTP 可用。写请求要求 Origin 与入站 Host/协议同源，缺少 Origin 时拒绝。
+- `web/src/db/schema.ts` 定义 9 张 V1 游戏数据表；M-009 复用 M-005 的 PlayGroup、Attempt、Submission 事务和现有迁移，不新增数据表或迁移。
+- 个人 Cookie 名为 `moonlight_attempt`，HttpOnly、SameSite=Lax、Path=`/api/attempts`、30 天有效。双人 Cookie 名为 `moonlight_group_attempt`，HttpOnly、SameSite=Lax、Path=`/api/play-groups`，与房间 15 分钟有效期一致。生产响应设 Secure（生产部署应使用 HTTPS），开发模式的本地 HTTP 不设 Secure。写请求要求 Origin 与入站 Host/协议同源，缺少 Origin 时拒绝。
 - `web/drizzle/` 保存迁移。可运行 `npm run test:db` 验证迁移和 PostgreSQL 约束，无需配置数据库。
 - `npm run db:migrate:local` 仅接受 loopback PostgreSQL URL；它不会启动数据库。没有生产迁移命令。
 
@@ -58,7 +60,7 @@ seed 只插入固定 ID 的虚构 Venue、桌位、题包、不可变版本和�
 
 ## 尚未实现
 
-双人联机业务流程、登录、正式商家后台、AI、微信小程序、支付和上线均未实现。正式桌码入口和答题流程需要已配置的 PostgreSQL `DATABASE_URL`；没有数据库时页面与 API 安全地显示/返回暂不可用，不会生成演示门店或伪造参与记录。数据库 schema 和本地 PGlite 测试不代表已有可部署的生产后端。
+登录、正式商家后台、AI、微信小程序、支付和上线均未实现。双人流程是桌码＋短期邀请链接的轻量轮询体验，不包含陌生人匹配、聊天、跨桌社交、WebSocket 或可证明同桌的身份/位置校验。正式桌码及个人/双人答题流程需要已配置的 PostgreSQL `DATABASE_URL`；没有数据库时页面与 API 安全地显示/返回暂不可用，不会生成演示门店或伪造参与记录。数据库 schema 和本地 PGlite 测试不代表已有可部署的生产后端。
 
 ## 目录
 

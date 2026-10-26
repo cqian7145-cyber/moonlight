@@ -87,12 +87,12 @@ export function TableEntryView({ entry, tableCode }: { entry: PublicTableEntry; 
         <div className="entryActions">
           <SoloAttemptControl tableCode={tableCode} />
           <div className="entryDuoGroup">
-            <button className="entryDuoButton" type="button" disabled>
-              <span>双人默契</span><span className="entryComingSoon">后续版本开放</span>
-            </button>
+            <Link className="entryDuoButton entryDuoActive" href={`/play/together/${encodeURIComponent(tableCode)}`}>
+              和朋友玩
+            </Link>
           </div>
         </div>
-        <p className="entryPrivacy">开始后，答案会逐题保存；你可以在本设备恢复进度和结果。</p>
+        <p className="entryPrivacy">个人答案会逐题保存。双人模式需双方自愿加入并完成后，才会共同看到彼此选择。</p>
       </section>
     </EntryFrame>
   );

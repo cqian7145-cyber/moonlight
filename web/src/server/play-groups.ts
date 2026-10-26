@@ -43,12 +43,17 @@ export async function joinPlayGroup(db: DomainDb, input: { invitationToken: stri
   const invitationHash = hashToken(input.invitationToken);
   const participantHash = hashToken(participantToken);
   const outcome = await db.transaction(async (tx) => {
-    const [group] = await tx.select({ id: schema.playGroups.id, venueId: schema.playGroups.venueId, publicationId: schema.playGroups.publicationId, status: schema.playGroups.status, expiresAt: schema.playGroups.expiresAt })
+    const [group] = await tx.select({ id: schema.playGroups.id, venueId: schema.playGroups.venueId, publicationId: schema.playGroups.publicationId, tableId: schema.playGroups.tableId, status: schema.playGroups.status, expiresAt: schema.playGroups.expiresAt })
       .from(schema.playGroups).where(eq(schema.playGroups.inviteCodeHash, invitationHash)).for("update").limit(1);
     if (!group) return { error: "NOT_FOUND" as const };
     if (await markExpiredGroup(tx, group.id, now)) return { error: "GROUP_EXPIRED" as const };
     if (group.status === "expired") return { error: "GROUP_EXPIRED" as const };
     if (group.status === "cancelled") return { error: "GROUP_CLOSED" as const };
+    if (group.tableId) {
+      const [table] = await tx.select({ isEnabled: schema.venueTables.isEnabled }).from(schema.venueTables)
+        .where(eq(schema.venueTables.id, group.tableId)).limit(1);
+      if (!table?.isEnabled) return { error: "GROUP_CLOSED" as const };
+    }
     const [existing] = await tx.select({ id: schema.attempts.id, groupId: schema.attempts.playGroupId, status: schema.attempts.status })
       .from(schema.attempts).where(eq(schema.attempts.sessionTokenHash, participantHash)).limit(1);
     if (existing) {
@@ -74,13 +79,48 @@ export async function joinPlayGroup(db: DomainDb, input: { invitationToken: stri
   return { ...outcome, participantToken };
 }
 
+export async function getPlayGroupInvitation(db: DomainDb, input: { invitationToken: string }, dependencies?: Pick<ServiceDependencies, "clock">) {
+  const now = serviceNow(dependencies);
+  const [room] = await db.select({
+    status: schema.playGroups.status, expiresAt: schema.playGroups.expiresAt,
+    tableId: schema.playGroups.tableId, tableEnabled: schema.venueTables.isEnabled,
+    venueStatus: schema.venues.status, venueName: schema.venues.name,
+    publicationStatus: schema.publications.status, activatedAt: schema.publications.activatedAt,
+    deactivatedAt: schema.publications.deactivatedAt, activityTitle: schema.activityTemplates.title,
+    templateStatus: schema.activityTemplates.status,
+  }).from(schema.playGroups)
+    .innerJoin(schema.venues, eq(schema.venues.id, schema.playGroups.venueId))
+    .innerJoin(schema.publications, and(eq(schema.publications.id, schema.playGroups.publicationId), eq(schema.publications.venueId, schema.playGroups.venueId)))
+    .innerJoin(schema.activityVersions, and(eq(schema.activityVersions.id, schema.publications.versionId), eq(schema.activityVersions.venueId, schema.publications.venueId)))
+    .innerJoin(schema.activityTemplates, and(eq(schema.activityTemplates.id, schema.activityVersions.templateId), eq(schema.activityTemplates.venueId, schema.activityVersions.venueId)))
+    .leftJoin(schema.venueTables, eq(schema.venueTables.id, schema.playGroups.tableId))
+    .where(eq(schema.playGroups.inviteCodeHash, hashToken(input.invitationToken))).limit(1);
+  if (!room) fail("NOT_FOUND");
+  if (room.venueStatus !== "active" || (room.tableId !== null && room.tableEnabled !== true) || room.publicationStatus !== "active" || room.deactivatedAt !== null || room.activatedAt > now || room.templateStatus === "archived") fail("ACTIVITY_UNAVAILABLE");
+  if (room.expiresAt <= now || room.status === "expired") fail("GROUP_EXPIRED");
+  if (room.status !== "open") fail("GROUP_FULL");
+  return { venueName: room.venueName, activityTitle: room.activityTitle, expiresAt: room.expiresAt };
+}
+
+export async function getPlayGroupScope(db: DomainDb, input: { participantToken: string }) {
+  const [scope] = await db.select({ venueId: schema.playGroups.venueId, tableId: schema.playGroups.tableId })
+    .from(schema.attempts).innerJoin(schema.playGroups, and(
+      eq(schema.playGroups.id, schema.attempts.playGroupId), eq(schema.playGroups.publicationId, schema.attempts.publicationId),
+    )).where(and(eq(schema.attempts.sessionTokenHash, hashToken(input.participantToken)), eq(schema.attempts.mode, "duo"))).limit(1);
+  if (!scope) fail("NOT_FOUND");
+  return scope;
+}
+
 async function ownedDuo(db: DomainDb, token: string) {
   const query = db.select({
     attemptId: schema.attempts.id, groupId: schema.playGroups.id, publicationId: schema.playGroups.publicationId,
     groupStatus: schema.playGroups.status, expiresAt: schema.playGroups.expiresAt, consentedAt: schema.attempts.consentedAt,
+    venueStatus: schema.venues.status, tableId: schema.playGroups.tableId, tableEnabled: schema.venueTables.isEnabled,
   }).from(schema.attempts).innerJoin(schema.playGroups, and(
     eq(schema.playGroups.id, schema.attempts.playGroupId), eq(schema.playGroups.publicationId, schema.attempts.publicationId),
-  )).where(and(eq(schema.attempts.sessionTokenHash, hashToken(token)), eq(schema.attempts.mode, "duo"))).limit(1);
+  )).innerJoin(schema.venues, eq(schema.venues.id, schema.playGroups.venueId))
+    .leftJoin(schema.venueTables, eq(schema.venueTables.id, schema.playGroups.tableId))
+    .where(and(eq(schema.attempts.sessionTokenHash, hashToken(token)), eq(schema.attempts.mode, "duo"))).limit(1);
   const rows = await query;
   if (!rows[0]) fail("NOT_FOUND");
   return rows[0];
@@ -99,16 +139,27 @@ export async function getPlayGroupState(db: DomainDb, input: { participantToken:
   const now = serviceNow(dependencies);
   const state = await db.transaction(async (tx) => {
     const groupId = await lockParticipantGroup(tx, input.participantToken);
-    await markExpiredGroup(tx, groupId, now);
-    const [group] = await tx.select({ status: schema.playGroups.status }).from(schema.playGroups).where(eq(schema.playGroups.id, groupId)).limit(1);
+    const [group] = await tx.select({ status: schema.playGroups.status, expiresAt: schema.playGroups.expiresAt }).from(schema.playGroups).where(eq(schema.playGroups.id, groupId)).limit(1);
     if (!group) fail("NOT_FOUND");
-    const members = await tx.select({ status: schema.attempts.status }).from(schema.attempts)
+    const own = await ownedDuo(tx, input.participantToken);
+    if (own.venueStatus !== "active" || (own.tableId !== null && own.tableEnabled !== true)) fail("ACTIVITY_UNAVAILABLE");
+    const expired = group.status === "expired" || group.expiresAt <= now;
+    const members = expired ? [] : await tx.select({ id: schema.attempts.id, status: schema.attempts.status }).from(schema.attempts)
       .where(and(eq(schema.attempts.playGroupId, groupId), eq(schema.attempts.mode, "duo"), sql`${schema.attempts.status} <> 'abandoned'`));
     const complete = members.length === 2 && members.every((member) => member.status === "completed");
+    const other = members.find((member) => member.id !== own.attemptId);
+    const [{ ownAnsweredCount }] = await tx.select({ ownAnsweredCount: sql<number>`count(*)::int` }).from(schema.submissions)
+      .where(eq(schema.submissions.attemptId, own.attemptId));
+    const [expiry] = await tx.select({ expiresAt: schema.playGroups.expiresAt }).from(schema.playGroups).where(eq(schema.playGroups.id, groupId)).limit(1);
     return {
       groupId,
-      status: group.status === "open" ? "waiting" as const : group.status === "paired" ? complete ? "completed" as const : "ready" as const : group.status === "expired" ? "expired" as const : "abandoned" as const,
+      status: expired ? "expired" as const : group.status === "open" ? "waiting" as const : group.status === "paired" ? complete ? "completed" as const : "ready" as const : "abandoned" as const,
       validMemberCount: members.length,
+      ownAttemptStatus: expired ? "abandoned" : members.find((member) => member.id === own.attemptId)?.status ?? "abandoned",
+      ownAnsweredCount,
+      otherJoined: Boolean(other),
+      otherCompleted: other?.status === "completed",
+      expiresAt: expiry?.expiresAt ?? now,
     };
   });
   return state;
@@ -117,10 +168,10 @@ export async function getPlayGroupState(db: DomainDb, input: { participantToken:
 export async function getPlayGroupResult(db: DomainDb, input: { participantToken: string }, dependencies?: Pick<ServiceDependencies, "clock">) {
   const now = serviceNow(dependencies);
   const outcome = await db.transaction(async (tx) => {
-    const groupId = await lockParticipantGroup(tx, input.participantToken);
-    const expired = await markExpiredGroup(tx, groupId, now);
-    if (expired) return { error: "RESULT_NOT_READY" as const };
+    await lockParticipantGroup(tx, input.participantToken);
     const own = await ownedDuo(tx, input.participantToken);
+    if (own.venueStatus !== "active" || (own.tableId !== null && own.tableEnabled !== true)) return { error: "ACTIVITY_UNAVAILABLE" as const };
+    if (own.expiresAt <= now || own.groupStatus === "expired" || own.groupStatus === "cancelled") return { error: "RESULT_NOT_READY" as const };
     if (own.groupStatus !== "paired") return { error: "RESULT_NOT_READY" as const };
     const attempts = await tx.select({ id: schema.attempts.id, consentedAt: schema.attempts.consentedAt, status: schema.attempts.status })
       .from(schema.attempts).where(and(eq(schema.attempts.playGroupId, own.groupId), eq(schema.attempts.mode, "duo")));
@@ -142,7 +193,12 @@ export async function getPlayGroupResult(db: DomainDb, input: { participantToken
       members.push({ answers: answers as number[] });
     }
     const comparison = calculateDuoComparison(members[0]!.answers, members[1]!.answers);
-    return { groupId: own.groupId, members, ...comparison };
+    const ownIndex = attempts.findIndex((attempt) => attempt.id === own.attemptId);
+    return {
+      groupId: own.groupId, members, ...comparison,
+      ownAnswers: members[ownIndex]!.answers,
+      partnerAnswers: members[1 - ownIndex]!.answers,
+    };
   });
   if ("error" in outcome && outcome.error) fail(outcome.error);
   return outcome;
