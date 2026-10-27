@@ -21,5 +21,6 @@ npm run dev
 - M-011 草稿 JSONB 保存在 `activity_templates.draft_content`。题名随草稿保存；发布时题名和 3×3 题目复制到新的冻结 `activity_versions.content`。新增迁移兼容旧空草稿且不修改已冻结版本。
 - 商家运营采用 owner 写入、staff 只读：staff 只能查看当前活动概要和桌位状态。桌位新增/轮换只在一次性响应中返回原码和打印 URL，表内继续只保存 SHA-256 哈希。
 - 受控本地建号可使用 `node --import tsx scripts/provision-merchant-local.ts --local-provision`。它要求交互终端及显式确认，且只接受 `127.0.0.1:55432/moonlight_dev`；调用前需在当前进程设置 `DATABASE_URL`，不要把密码放命令行或写入仓库。
+- Staging 建号 CLI 是独立的一次性运维工具：`npm run provision:merchant:staging -- --dry-run` 默认只读；写入要求 `--execute`、Staging 专用环境确认和 TTY 人工确认。它仅接受精确核准的私网 `moonlight_app` 连接和固定测试门店，复用 Better Auth API；不会开放 HTTP 注册。流程见 `docs/STAGING_MERCHANT_PROVISIONING_RUNBOOK.md`，远端操作需要另行授权。
 - `npm run db:seed:m007b:local` 从 `web/.env.local` 读取连接，仅允许 `localhost`/loopback 上的 `moonlight_dev`；使用稳定主键插入虚构验收数据，已存在数据必须与预期一致，否则回滚并退出。有效桌码保存在被忽略的 `D:\moonlight\.local\m007b-fixture.json`。
 - 远程 migration runner 的本地代码门禁已实现；Railway migration job、独立远端角色权限和 staging 迁移仍未创建/验证。PGlite 测试不替代真实 PostgreSQL 或远端部署验收。
