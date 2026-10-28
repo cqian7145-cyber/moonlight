@@ -2,7 +2,7 @@ import { PGlite } from "@electric-sql/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import { drizzle } from "drizzle-orm/pglite";
 import { resolve } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import * as schema from "../db/schema";
 import { createMerchantAuth } from "../lib/merchant-auth";
@@ -48,7 +48,52 @@ describe("merchant authentication backed by the checked-in migration", () => {
   });
 
   afterEach(async () => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
     await client.close();
+  });
+
+  it("logs only the live origin context when opted in and preserves INVALID_ORIGIN rejection", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    const auth = createMerchantAuth(db as never, { baseURL, secret, loggerDisabled: true });
+    const makeRequest = () => new Request(`${baseURL}/api/auth/sign-in/email`, {
+      method: "POST",
+      headers: {
+        origin: "https://untrusted.example.test",
+        host: "private-web:3000",
+        "x-forwarded-host": "moonlight.xizimist.com",
+        "x-forwarded-proto": "https",
+        cookie: "private-cookie-marker",
+        authorization: "Bearer private-token-marker",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ email: "private-email@example.test", password: "private-password-marker" }),
+    });
+
+    vi.stubEnv("MOONLIGHT_AUTH_ORIGIN_DIAGNOSTICS", "0");
+    expect((await auth.handler(makeRequest())).status).toBe(403);
+    expect(info).not.toHaveBeenCalled();
+    vi.stubEnv("MOONLIGHT_AUTH_ORIGIN_DIAGNOSTICS", "1");
+    const response = await auth.handler(makeRequest());
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({ code: "INVALID_ORIGIN" });
+    expect(info).toHaveBeenCalledTimes(1);
+    const [prefix, json] = info.mock.calls[0]!;
+    expect(prefix).toBe("[moonlight-auth-origin-diagnostic]");
+    const context = await auth.$context;
+    expect(JSON.parse(json as string)).toEqual({
+      Origin: "https://untrusted.example.test",
+      trustedOrigins: context.trustedOrigins,
+      baseURL: context.baseURL,
+      Host: "private-web:3000",
+      "X-Forwarded-Host": "moonlight.xizimist.com",
+      "X-Forwarded-Proto": "https",
+    });
+    expect(String(json)).not.toMatch(/private-(?:cookie|token|email|password)/);
+    expect(String(json)).not.toContain(secret);
+    info.mockClear();
+    await auth.handler(new Request(`${baseURL}/api/auth/get-session`));
+    expect(info).not.toHaveBeenCalled();
   });
 
   it("rejects raw public sign-up requests", async () => {

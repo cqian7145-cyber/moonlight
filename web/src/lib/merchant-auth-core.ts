@@ -4,6 +4,7 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { eq } from "drizzle-orm";
 import type { getDb } from "../db";
 import * as schema from "../db/schema";
+import { merchantOriginDiagnostics } from "./merchant-origin-diagnostics";
 
 export type MerchantAuthDb = ReturnType<typeof getDb>;
 
@@ -29,6 +30,7 @@ export function createMerchantAuth(db: MerchantAuthDb, options: MerchantAuthOpti
     basePath: "/api/auth",
     secret: options.secret,
     trustedOrigins: [baseUrl.origin],
+    plugins: [merchantOriginDiagnostics],
     database: drizzleAdapter(db, {
       provider: "pg",
       schema: {
