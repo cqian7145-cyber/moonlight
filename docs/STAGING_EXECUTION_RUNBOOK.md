@@ -1,12 +1,12 @@
 # M-014S2｜受限 Staging 执行 Runbook
 
-状态：**BLOCKED**。Phase A 的本地工程与安全材料已完成；由于公开成本场景显示三项常驻服务可能超过 USD 10/月，且账户级 minimum sizing/账单尚未获授权核实，当前不能确认满足硬预算，不建议进入 Phase B。未创建 Railway/Cloudflare 项目、服务、Tunnel 或 DNS 记录；没有连接 GitHub 部署，不含真实商家或顾客数据。
+状态：**BLOCKED（远端安全与费用待核验）**。项目方在 2026-10-28 提供的当前资源清单为 Railway `moonlight` Web、Postgres、cloudflared、moonlight-migration，Staging 域名 `moonlight.xizimist.com`；本次没有连接 Railway/Cloudflare，未独立核实资源、部署、Access/Tunnel 或 DNS 设置。每月预算上限为 USD 10，账户级 minimum sizing、当前账单和资源用量仍需项目所有者在 Dashboard 复核。本地材料不包含真实商家或顾客数据。
 
 ## 1. 固定架构与范围
 
 ```text
 指定邮箱的测试者
-  -> https://staging.xizimist.com
+  -> https://moonlight.xizimist.com
   -> Cloudflare Access（指定邮箱 Allow，其余默认拒绝）
   -> Cloudflare Tunnel（Protect with Access 必须开启）
   -> Railway cloudflared service（无公网域名）
@@ -17,7 +17,7 @@
 - Web、PostgreSQL、cloudflared 同 Railway project、environment、Singapore region `asia-southeast1-eqsg3a`。官方当前 Regions 文档列出该新加坡区域；最终以账户实际可选项为准。
 - 服务私网通过 Railway internal DNS 通信。Web 使用平台 `PORT`，监听 `0.0.0.0`，cloudflared 指向 Web 的 private DNS + `PORT`。任何 private hostname、端口和 DNS 行为都必须在授权后的 Railway 环境实测。
 - Railway 不为 Web 或 PostgreSQL 建立 public domain / TCP Proxy。Cloudflare Tunnel 是唯一公开入口。
-- 只规划 `staging.xizimist.com`。不得修改 Shopify 使用的 `xizimist.com`、`www`、MX 或任何既有记录；不得把根域或 `www` 改为 Tunnel CNAME。
+- 只规划 `moonlight.xizimist.com`。不得修改 Shopify 使用的 `xizimist.com`、`www`、MX 或任何既有记录；不得把根域或 `www` 改为 Tunnel CNAME。
 - Access 应用先创建并配置白名单，再配置 Tunnel published hostname route。Tunnel 启用 Protect with Access，使 `cloudflared` 在代理前验证 Access JWT；仅把 Access 加在一个 URL/页面上不足以保护源站。
 - 只使用虚构门店、题包、参与和测试身份。`/api/health` 当前只证明 Next 进程响应，不证明 DB 已可用。
 
@@ -27,9 +27,9 @@
 
 | 服务 | 根目录/镜像 | 网络及变量边界 | 健康/运行策略 |
 | --- | --- | --- | --- |
-| `moonlight-web` | Git repo 的 `/web`；Railpack；Node 24；`npm ci && npm run build` | 无 public domain；只接收 Tunnel 私网流量；只持有应用 `DATABASE_URL`、Better Auth secret 和固定公开 Origin | Start command：`npm start -- --hostname 0.0.0.0 --port $PORT`；用平台 `PORT`，不得写死 3000/3001；healthcheck `/api/health` 仅作进程检查。 |
-| `moonlight-postgres` | Railway PostgreSQL | Private Networking；关闭 Public Networking / TCP Proxy；Web 和 migration 使用不同身份 | 上线前另外执行只读 SQL readiness；先核对平台备份/PITR 套餐及恢复能力。 |
-| `moonlight-cloudflared` | Cloudflare 官方 `cloudflared` 容器固定版本/镜像 digest | 同 project/environment/region；无 public domain；Tunnel Token 仅此服务 Secret；上游为 `http://moonlight-web.railway.internal:$PORT`（实测后固定） | 单实例常驻；Tunnel 健康状态不替代应用/数据库探针。固定镜像版本并订阅安全更新。 |
+| `moonlight-web` | Git repo 的 `/web`；Railpack；Node 24；`npm ci && npm run build` | 目标为无 Railway public domain、只接收 Tunnel 私网流量；只持有应用 `DATABASE_URL`、Better Auth secret 和固定公开 Origin；实际设置未在本轮核实 | Start command：`npm start -- --hostname 0.0.0.0 --port $PORT`；用平台 `PORT`，不得写死 3000/3001；healthcheck `/api/health` 仅作进程检查。 |
+| `moonlight-postgres` | Railway PostgreSQL | 目标为 Private Networking；关闭 Public Networking / TCP Proxy；Web 和 migration 使用不同身份；实际设置未在本轮核实 | 上线前另外执行只读 SQL readiness；先核对平台备份/PITR 套餐及恢复能力。 |
+| `moonlight-cloudflared` | Cloudflare 官方 `cloudflared` 容器固定版本/镜像 digest | 同 project/environment/region；无 public domain；Tunnel Token 仅此服务 Secret；上游为 `http://moonlight-web.railway.internal:$PORT`（须实测）；实际设置未在本轮核实 | 单实例常驻；Tunnel 健康状态不替代应用/数据库探针。固定镜像版本并订阅安全更新。 |
 
 Railway 官方文档说明同一 project/environment 的私网服务使用 `*.railway.internal` DNS；私网流量通过 WireGuard。不能据此假定这个 Next 项目已配置完成，必须部署后实测连通性、监听地址、端口和源站不可达性。
 
@@ -56,10 +56,10 @@ Railway 官方文档说明同一 project/environment 的私网服务使用 `*.ra
 ## 4. 部署前顺序（仅供获批后执行）
 
 1. 确认 Cloudflare/Railway 账号、Singapore 可用区域、计费、测试邮箱、数据保留和备份恢复策略；在一个仅用于 Staging 的 Workspace 设置用量预警与 hard limit。
-2. 创建隔离 Railway Staging project/environment；创建 Postgres 私网服务、Web 私网服务、cloudflared 私网服务。不创建 Railway public domains / PG TCP Proxy。
-3. 在 Cloudflare 先建立 exact-hostname Self-hosted Access App 和邮箱白名单；明确拒绝其他身份与默认拒绝策略。随后建立 Tunnel、为 Tunnel 启用 Protect with Access，再发布 `staging.xizimist.com` hostname route。
-4. 验证只新增/改变 `staging` 主机记录；逐项对照并确认根域、`www`、Shopify 相关记录完全不变。
-5. 使用临时 secret store 值配置 Web 和 migration service。先在隔离空库由 migration job 执行四条已冻结 migration，再核对 schema/约束和 readiness，之后才启动 Web。
+2. 复核项目方报告已存在的 Railway Staging project/environment 及 Web、Postgres、cloudflared、migration 服务；只检查名称、区域、私网和变量引用，不重复创建。不得创建 Railway public domain / PG TCP Proxy。若实际缺少服务，另行审批后再补建。
+3. 只读核对 Cloudflare 的 exact-hostname Self-hosted Access App、邮箱白名单、默认拒绝策略、Tunnel Protect with Access 和 `moonlight.xizimist.com` hostname route。若配置缺失或不一致，先停下并提交变更方案；不得未经授权修改。
+4. 只读核对现有 `moonlight.xizimist.com` DNS 记录及根域、`www`、Shopify 相关记录；任何 DNS 修改须先单独授权并经项目所有者复核。
+5. 项目方报告 15 张表、4 条 Migration 已通过远端验证。执行前先用获授权的只读方式核对当前 Migration ledger 和 Schema；不要在本流程重复初始化或重跑 Migration。只有发现差异并得到单独迁移授权后，才按本 Runbook 独立 Migration 流程处理。Web 启动状态与变量引用也需要从 Dashboard 复核。
 6. 完成 [安全验收矩阵](STAGING_ACCESS_MATRIX.md) 中全部远端场景。遇到源站公共入口、域名记录变化、错误 Host/Origin、凭据混用、预算超限、恢复失败时立即停止；不为通过测试而关闭 Access/CSRF/Host 检查。
 7. 完成后复核费用、告警、备份、凭据撤销和测试数据清理。不得由本地任务自动开展 Phase B 或生产发布。
 

@@ -107,13 +107,15 @@ async function main() {
       database: string;
       current_user: string;
       session_user: string;
+      rolinherit: boolean;
+      has_role_memberships: boolean;
       rolsuper: boolean;
       rolcreaterole: boolean;
       rolcreatedb: boolean;
       rolreplication: boolean;
       rolbypassrls: boolean;
     }>(
-      "SELECT current_database() AS database, current_user, session_user, r.rolsuper, r.rolcreaterole, r.rolcreatedb, r.rolreplication, r.rolbypassrls FROM pg_roles AS r WHERE r.rolname = current_user",
+      "SELECT current_database() AS database, current_user, session_user, r.rolinherit, EXISTS (SELECT 1 FROM pg_auth_members AS m WHERE m.member = r.oid) AS has_role_memberships, r.rolsuper, r.rolcreaterole, r.rolcreatedb, r.rolreplication, r.rolbypassrls FROM pg_roles AS r WHERE r.rolname = current_user",
     );
     const identity = identityResult.rows[0];
     if (!identity) throw new StagingProvisionError("database_identity_mismatch");
@@ -121,6 +123,8 @@ async function main() {
       database: identity.database,
       currentUser: identity.current_user,
       sessionUser: identity.session_user,
+      inherit: identity.rolinherit,
+      hasRoleMemberships: identity.has_role_memberships,
       superuser: identity.rolsuper,
       createRole: identity.rolcreaterole,
       createDatabase: identity.rolcreatedb,

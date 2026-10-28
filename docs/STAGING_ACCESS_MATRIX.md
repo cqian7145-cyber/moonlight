@@ -1,10 +1,10 @@
 # M-014S2｜受限 Staging 安全验收矩阵
 
-本矩阵只列验收门槛；当前没有 Railway/Cloudflare Staging 资源。所有远端项在实际获批部署并留存脱敏证据之前均为 `NOT_RUN`。不得用 localhost / PGlite 结果替代。
+本矩阵只列验收门槛。项目方报告 Railway `moonlight` Web、Postgres、cloudflared、moonlight-migration 与 Staging 域名 `moonlight.xizimist.com` 已存在；本次没有访问 Railway/Cloudflare，未核实实际部署与网络设置。除先前单独记录的数据库迁移验收外，本矩阵中的远端浏览器、Access/Tunnel、私网绕过与安全回归项目仍为 `NOT_RUN`，不得用 localhost / PGlite 结果替代。
 
 | 层 | 场景/请求 | 必须结果 | 证据及停止条件 |
 | --- | --- | --- | --- |
-| Access 登录 | 指定 allowlist 邮箱访问 `staging.xizimist.com` | Access 验证身份后允许；随后仍需 Moonlight 商家登录 | Chrome 新会话、Access event + 页面状态；不要在截图中留邮箱以外的身份信息或 Cookie。 |
+| Access 登录 | 指定 allowlist 邮箱访问 `moonlight.xizimist.com` | Access 验证身份后允许；随后仍需 Moonlight 商家登录 | Chrome 新会话、Access event + 页面状态；不要在截图中留邮箱以外的身份信息或 Cookie。 |
 | Access 拒绝 | 未登录、非 allowlist 邮箱、撤销邮箱、Access session 到期 | 在到达 Web 前被拒绝；默认拒绝 | 逐一浏览器验证，并确认 origin 无访问日志请求；任何匿名页面/API 可达即 BLOCKED。 |
 | Tunnel JWT | 缺失、伪造、过期、错误签名/issuer/audience 的 Access JWT | Tunnel Protect with Access 在转发前拒绝 | Tunnel event / 请求结果；不得仅检查 `Cf-Access-Authenticated-User-Email` header。 |
 | Tunnel 建立顺序 | 在 Access App 尚未准备好时的 route | 不得先发布无 Access route | 首次开通录像/配置审查；如曾匿名暴露，撤销 route/token 并启动凭据泄漏评估。 |
@@ -12,7 +12,7 @@
 | PostgreSQL 网络 | 外网/TCP proxy 直连与 Web 同环境私网连接 | 公网连接失败；Web 私网连通；migration 身份独立且只限 job | Railway networking 配置和外部 TCP 测试。任何公共 Postgres Proxy 即 BLOCKED。 |
 | Shopify DNS 保护 | 新增 staging hostname；检查 apex/root、`www`、Shopify 当前各项 | 仅允许按批准新增 `staging` 记录；根域、`www`、Shopify/邮件记录逐项相同 | 修改前/后只读 DNS zone diff 和 Dashboard review；意外差异先撤销 staging 修改并停止，不自动修复原记录。 |
 | HTTP/TLS | HTTPS、HTTP redirect、TLS 证书和 HSTS | 外部 HTTPS 有效；HTTP 不泄露页面或会话 | 独立浏览器 context 和 TLS 检查；证书/Host 不匹配即 BLOCKED。 |
-| Host/Origin/CSRF | 标准浏览器写入、跨站 Origin、伪造 Host/Origin/Forwarded Host/Proto | 只有精确 `https://staging.xizimist.com` 上下文通过；应用拒绝跨站写入 | Browser network 请求和 API 状态码；不得关闭现有 `request-origin` 守卫或仅信任客户头。 |
+| Host/Origin/CSRF | 标准浏览器写入、跨站 Origin、伪造 Host/Origin/Forwarded Host/Proto | 只有精确 `https://moonlight.xizimist.com` 上下文通过；应用拒绝跨站写入 | Browser network 请求和 API 状态码；不得关闭现有 `request-origin` 守卫或仅信任客户头。 |
 | Better Auth | 登录、登出、callback、session cookie、失效重放 | callback 固定公开 HTTPS origin；Cookie `Secure; HttpOnly; SameSite` 正确；登出后 session 不再授权 | 真 Chrome + Access + Railway；localhost 测试不计作远端证据。 |
 | 个人玩法 | 桌码入口、匿名 Attempt、逐题答复、刷新恢复、结果 | 数据只在测试 PG；恢复同一 Attempt；门店暂停时敏感读写拒绝 | Chrome + staging PG 行数与请求对应；不得导入真实桌码或顾客信息。 |
 | 双人玩法 | 两隔离 Chrome context 邀请、加入、独立作答、同时争抢最后席位、共同揭晓 | 两位匿名身份分离；席位至多一人成功；双方完成后揭晓 | 两 context + 独立 PG 连接；检查 Attempt/Submission/PlayGroup 实际计数。 |

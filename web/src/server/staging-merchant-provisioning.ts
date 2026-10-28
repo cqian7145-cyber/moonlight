@@ -6,7 +6,7 @@ export const STAGING_VENUE_ID = "961b6054-e798-4c19-9bbf-a11050c55047";
 export const STAGING_VENUE_NAME = "Moonlight Staging 测试酒馆";
 export const STAGING_DATABASE_HOST = "postgres.railway.internal";
 export const STAGING_DATABASE_NAME = "railway";
-export const STAGING_DATABASE_ROLE = "moonlight_app";
+export const STAGING_DATABASE_ROLE = "moonlight_staging_provisioner";
 export const PROVISION_CONFIRMATION = "CREATE_STAGING_MERCHANT_OWNER";
 
 export type StagingProvisionErrorCode =
@@ -36,10 +36,10 @@ const SAFE_ERROR_MESSAGES: Record<StagingProvisionErrorCode, string> = {
   database_url_missing: "缺少专用 PROVISION_DATABASE_URL。",
   database_url_invalid: "专用数据库地址格式或协议无效；地址和凭据不会被打印。",
   database_host_not_approved: "数据库主机不是核准的 Railway Staging 私网主机。",
-  database_role_not_approved: "数据库账号不是 moonlight_app 应用角色。",
-  database_privileges_not_approved: "应用数据库账号具有禁止的高权限；没有执行写入。",
+  database_role_not_approved: "数据库账号不是本次建号专用角色。",
+  database_privileges_not_approved: "建号数据库角色具有禁止权限或角色继承；没有执行写入。",
   database_name_not_approved: "目标数据库不是核准的 railway Staging 数据库。",
-  database_identity_mismatch: "数据库返回的身份与核准的 Staging 应用角色/数据库不一致。",
+  database_identity_mismatch: "数据库返回的身份与核准的 Staging 建号角色/数据库不一致。",
   venue_id_not_approved: "目标门店 UUID 不属于核准的 Staging 测试门店。",
   input_invalid: "姓名、邮箱、密码长度或密码确认不符合要求。",
   venue_not_found: "核准的 Staging 测试门店不存在；没有执行写入。",
@@ -126,6 +126,8 @@ export function assertStagingDatabaseIdentity(identity: {
   database: string;
   currentUser: string;
   sessionUser: string;
+  inherit: boolean;
+  hasRoleMemberships: boolean;
   superuser: boolean;
   createRole: boolean;
   createDatabase: boolean;
@@ -136,7 +138,7 @@ export function assertStagingDatabaseIdentity(identity: {
   if (identity.currentUser !== STAGING_DATABASE_ROLE || identity.sessionUser !== STAGING_DATABASE_ROLE) {
     throw new StagingProvisionError("database_role_not_approved");
   }
-  if (identity.superuser || identity.createRole || identity.createDatabase || identity.replication || identity.bypassRls) {
+  if (identity.inherit || identity.hasRoleMemberships || identity.superuser || identity.createRole || identity.createDatabase || identity.replication || identity.bypassRls) {
     throw new StagingProvisionError("database_privileges_not_approved");
   }
 }

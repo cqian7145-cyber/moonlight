@@ -88,24 +88,28 @@ describe("M-015A staging merchant provisioning guards", () => {
       .toThrow(/production/);
   });
 
-  it("accepts only the exact private Staging endpoint and application role/database", () => {
+  it("accepts only the exact private Staging endpoint and dedicated provisioner role/database", () => {
     const target = validateProvisionDatabaseTarget(
-      "postgresql://moonlight_app:synthetic@postgres.railway.internal:5432/railway",
+      "postgresql://moonlight_staging_provisioner:synthetic@postgres.railway.internal:5432/railway",
     );
-    expect(target).toMatchObject({ host: "postgres.railway.internal", database: "railway", username: "moonlight_app" });
-    expect(() => validateProvisionDatabaseTarget("postgresql://moonlight_app:x@public-proxy.railway.app:5432/railway"))
+    expect(target).toMatchObject({ host: "postgres.railway.internal", database: "railway", username: "moonlight_staging_provisioner" });
+    expect(() => validateProvisionDatabaseTarget("postgresql://moonlight_staging_provisioner:x@public-proxy.railway.app:5432/railway"))
       .toThrowError(expect.objectContaining({ code: "database_host_not_approved" }));
+    expect(() => validateProvisionDatabaseTarget("postgresql://moonlight_app:x@postgres.railway.internal:5432/railway"))
+      .toThrowError(expect.objectContaining({ code: "database_role_not_approved" }));
     expect(() => validateProvisionDatabaseTarget("postgresql://moonlight_migrator:x@postgres.railway.internal:5432/railway"))
       .toThrowError(expect.objectContaining({ code: "database_role_not_approved" }));
-    expect(() => validateProvisionDatabaseTarget("postgresql://moonlight_app:x@postgres.railway.internal:5432/moonlight_dev"))
+    expect(() => validateProvisionDatabaseTarget("postgresql://moonlight_staging_provisioner:x@postgres.railway.internal:5432/moonlight_dev"))
       .toThrowError(expect.objectContaining({ code: "database_name_not_approved" }));
-    expect(() => validateProvisionDatabaseTarget("postgresql://moonlight_app@postgres.railway.internal:5432/railway"))
+    expect(() => validateProvisionDatabaseTarget("postgresql://moonlight_staging_provisioner@postgres.railway.internal:5432/railway"))
       .toThrowError(expect.objectContaining({ code: "database_role_not_approved" }));
 
     const leastPrivilegeIdentity = {
       database: "railway",
-      currentUser: "moonlight_app",
-      sessionUser: "moonlight_app",
+      currentUser: "moonlight_staging_provisioner",
+      sessionUser: "moonlight_staging_provisioner",
+      inherit: false,
+      hasRoleMemberships: false,
       superuser: false,
       createRole: false,
       createDatabase: false,
@@ -118,6 +122,10 @@ describe("M-015A staging merchant provisioning guards", () => {
     expect(() => assertStagingDatabaseIdentity({ ...leastPrivilegeIdentity, database: "moonlight_dev" }))
       .toThrowError(expect.objectContaining({ code: "database_name_not_approved" }));
     expect(() => assertStagingDatabaseIdentity({ ...leastPrivilegeIdentity, createRole: true }))
+      .toThrowError(expect.objectContaining({ code: "database_privileges_not_approved" }));
+    expect(() => assertStagingDatabaseIdentity({ ...leastPrivilegeIdentity, inherit: true }))
+      .toThrowError(expect.objectContaining({ code: "database_privileges_not_approved" }));
+    expect(() => assertStagingDatabaseIdentity({ ...leastPrivilegeIdentity, hasRoleMemberships: true }))
       .toThrowError(expect.objectContaining({ code: "database_privileges_not_approved" }));
   });
 
@@ -170,6 +178,40 @@ describe("M-015A staging merchant provisioning guards", () => {
     }));
     expect(publicSignup.status).toBeGreaterThanOrEqual(400);
     expect(await db.select().from(schema.authUsers).where(eq(schema.authUsers.email, "public@example.test"))).toHaveLength(0);
+  });
+
+  it("can provision with the documented table-scoped grants and cannot write unrelated business tables", async () => {
+    await client.exec(`
+      CREATE ROLE moonlight_staging_provisioner LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;
+      GRANT USAGE ON SCHEMA public TO moonlight_staging_provisioner;
+      GRANT SELECT ON TABLE venues, auth_users, venue_members TO moonlight_staging_provisioner;
+      GRANT INSERT ON TABLE auth_users, venue_members TO moonlight_staging_provisioner;
+      GRANT SELECT, INSERT ON TABLE auth_accounts TO moonlight_staging_provisioner;
+      GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE auth_rate_limits TO moonlight_staging_provisioner;
+      SET ROLE moonlight_staging_provisioner;
+    `);
+
+    try {
+      const roleCheck = await client.query<{ rolinherit: boolean; has_role_memberships: boolean }>(
+        "SELECT r.rolinherit, EXISTS (SELECT 1 FROM pg_auth_members AS m WHERE m.member = r.oid) AS has_role_memberships FROM pg_roles AS r WHERE r.rolname = current_user",
+      );
+      expect(roleCheck.rows[0]).toEqual({ rolinherit: false, has_role_memberships: false });
+      const account = await createAuth().api.signUpEmail({ body: {
+        name: "Staging Merchant",
+        email: "least-privilege@example.test",
+        password: GOOD_PASSWORD,
+      } });
+      await db.insert(schema.venueMembers).values({ venueId: VENUE_ID, userId: account.user.id, role: "owner", status: "active" });
+      await expect(client.query("INSERT INTO publications (venue_id, version_id) VALUES ($1, $2)", [
+        VENUE_ID,
+        "00000000-0000-4000-8000-000000000001",
+      ])).rejects.toMatchObject({ code: "42501" });
+    } finally {
+      await client.exec("RESET ROLE");
+    }
+
+    expect(await db.select().from(schema.authUsers).where(eq(schema.authUsers.email, "least-privilege@example.test"))).toHaveLength(1);
+    expect(await db.select().from(schema.venueMembers).where(eq(schema.venueMembers.venueId, VENUE_ID))).toHaveLength(1);
   });
 
   it("rolls back Better Auth user creation if credential-account insertion fails", async () => {
